@@ -1,0 +1,49 @@
+{
+  "project_info": {
+    "project_number": "237099479999",
+    "firebase_url": "https://ssm-consultancy-default-rtdb.firebaseio.com",
+    "project_id": "ssm-consultancy",
+    "storage_bucket": "ssm-consultancy.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:237099479999:android:07070b0fcf942a9080a70a",
+        "android_client_info": {
+          "package_name": "com.example.consultancy"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAw8KvUkuSV-gBTjEQqJv27AFlck0XPTIA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:237099479999:android:8cc38ddcb92d834580a70a",
+        "android_client_info": {
+          "package_name": "com.example.ssm"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAw8KvUkuSV-gBTjEQqJv27AFlck0XPTIA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
