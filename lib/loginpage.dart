@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'home_page_user.dart';
 import 'signup_page.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'dart:convert'; // For encoding and decoding
+import 'dart:convert';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
