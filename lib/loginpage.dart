@@ -53,6 +53,12 @@ class _LoginPageState extends State<LoginPage> {
       DocumentSnapshot userDoc = querySnapshot.docs.first;
       Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
 
+      // Check the status field
+      if (userData.containsKey("status") && userData["status"] == false) {
+        _showVerificationPopup();
+        return;
+      }
+
       // Hash entered password
       String enteredPasswordHash = _hashPassword(_passwordController.text.trim());
 
@@ -87,6 +93,27 @@ class _LoginPageState extends State<LoginPage> {
       setState(() => _isLoading = false);
     }
   }
+  void _showVerificationPopup() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Account Under Verification"),
+          content: const Text(
+              "Your account is under verification. Please wait for some time."),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+              },
+              child: const Text("OK"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
