@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -7,6 +8,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'loginpage.dart';
+import 'package:image/image.dart' as img;
 
 
 class FirstPage extends StatefulWidget {
@@ -299,10 +301,23 @@ class _SecondPageState extends State<SecondPage> {
   bool _passwordVisible = false;
   bool _confirmPasswordVisible = false;
 
+  // Function to hash password
   String _hashPassword(String password) {
     var bytes = utf8.encode(password);
     var digest = sha256.convert(bytes);
     return digest.toString();
+  }
+
+  Future<bool> _isEmailAlreadyRegistered(String email) async {
+    try {
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('email', isEqualTo: email)
+          .get();
+      return querySnapshot.docs.isNotEmpty;
+    } catch (e) {
+      return false;
+    }
   }
 
   void _validateAndProceed() async {
@@ -319,12 +334,25 @@ class _SecondPageState extends State<SecondPage> {
       return;
     }
 
+    String email = emailController.text.trim();
+    bool emailExists = await _isEmailAlreadyRegistered(email);
+
+    if (emailExists) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Email is already registered")),
+      );
+      return;
+    }
+
     try {
       // Create user in Firebase Authentication
       UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: emailController.text.trim(),
-        password: passwordController.text.trim(), // Store raw password
+        email: email,
+        password: passwordController.text.trim(),
       );
+
+      // Store user details in Firestore with hashed password
+      String hashedPassword = _hashPassword(passwordController.text.trim());
 
       // Navigate to ThirdPage after successful sign-up
       Navigator.push(
@@ -357,18 +385,16 @@ class _SecondPageState extends State<SecondPage> {
             motherMobile: motherMobileController.text,
             spouseName: spouseNameController.text,
             spouseMobile: spouseMobileController.text,
-            password: passwordController.text.trim(), // Store raw password (hashed if necessary)
+            password: hashedPassword, // Pass hashed password
           ),
         ),
       );
     } catch (e) {
-      // Handle errors (e.g., email already in use, weak password)
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Error: ${e.toString()}")),
       );
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -458,46 +484,37 @@ class _SecondPageState extends State<SecondPage> {
 
   List<Widget> _buildAdditionalTextFields() {
     return [
-      _buildTextField("Native", nativeController, false, null),
-      _buildTextField("Religion", religionController, false, null),
-      _buildTextField("Cast", castController, false, null),
-      _buildTextField("Email ID", emailController, false, null),
-      _buildTextField("Emergency Contact No", emergencyContactController, false, null),
-      _buildTextField("Blood Group", bloodGroupController, false, null),
-      _buildTextField("Father Name", fatherNameController, false, null),
-      _buildTextField("Father Mobile Number", fatherMobileController, false, null),
-      _buildTextField("Mother Name", motherNameController, false, null),
-      _buildTextField("Mother Mobile Number", motherMobileController, false, null),
-      _buildTextField("Spouse Name", spouseNameController, false, null),
-      _buildTextField("Spouse Mobile Number", spouseMobileController, false, null),
+      _buildTextField("Native", nativeController),
+      _buildTextField("Religion", religionController),
+      _buildTextField("Cast", castController),
+      _buildTextField("Email ID", emailController),
+      _buildTextField("Emergency Contact No", emergencyContactController),
+      _buildTextField("Blood Group", bloodGroupController),
+      _buildTextField("Father Name", fatherNameController),
+      _buildTextField("Father Mobile Number", fatherMobileController),
+      _buildTextField("Mother Name", motherNameController),
+      _buildTextField("Mother Mobile Number", motherMobileController),
+      _buildTextField("Spouse Name", spouseNameController),
+      _buildTextField("Spouse Mobile Number", spouseMobileController),
     ];
   }
 
-  Widget _buildTextField(String hint, TextEditingController controller, bool isRequired, RegExp? pattern) {
+  Widget _buildTextField(String hint, TextEditingController controller) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 15.0),
-      child: TextFormField(
+      child: TextField(
         controller: controller,
         decoration: InputDecoration(
           labelText: hint,
           filled: true,
           fillColor: Colors.grey[200],
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-          contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
         ),
-        validator: (value) {
-          if (isRequired && (value == null || value.trim().isEmpty)) {
-            return "$hint is required";
-          }
-          if (pattern != null && value != null && value.isNotEmpty && !pattern.hasMatch(value)) {
-            return "Enter a valid $hint";
-          }
-          return null;
-        },
       ),
     );
   }
 }
+
 
 class ThirdPage extends StatefulWidget {
   final List<CameraDescription> cameras;
@@ -567,7 +584,13 @@ class _ThirdPageState extends State<ThirdPage> {
   // Convert image to Base64
   Future<String> _convertImageToBase64(File image) async {
     final bytes = await image.readAsBytes();
-    return base64Encode(bytes);
+
+    // Resize Image
+    img.Image? originalImage = img.decodeImage(bytes);
+    img.Image resizedImage = img.copyResize(originalImage!, width: 300);
+
+    final resizedBytes = img.encodeJpg(resizedImage, quality: 85);
+    return base64Encode(resizedBytes);
   }
 
   // Function to pick image
@@ -621,37 +644,37 @@ class _ThirdPageState extends State<ThirdPage> {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() {
-      _isLoading = true; // Show loading
+      _isLoading = true;
     });
 
     try {
       await FirebaseFirestore.instance.collection("users").add({
-        "name": widget.name,
-        "qualification": widget.qualification,
-        "experience": widget.experience,
-        "dob": widget.dob,
-        "age": widget.age,
-        "gender": widget.gender,
-        "address": widget.address,
-        "district": widget.district,
-        "state": widget.state,
-        "pincode": widget.pincode,
-        "mobile": widget.mobile,
-        "altMobile": widget.altMobile,
-        "whatsapp": widget.whatsapp,
-        "native": widget.native,
-        "religion": widget.religion,
-        "cast": widget.cast,
-        "email": widget.email,
-        "password": widget.password,
-        "emergencyContact": widget.emergencyContact,
-        "bloodGroup": widget.bloodGroup,
-        "fatherName": widget.fatherName,
-        "fatherMobile": widget.fatherMobile,
-        "motherName": widget.motherName,
-        "motherMobile": widget.motherMobile,
-        "spouseName": widget.spouseName,
-        "spouseMobile": widget.spouseMobile,
+        "name": widget.name ?? "Unknown",
+        "qualification": widget.qualification ?? "Unknown",
+        "experience": widget.experience ?? "0 years",
+        "dob": widget.dob ?? "",
+        "age": widget.age ?? "",
+        "gender": widget.gender ?? "",
+        "address": widget.address ?? "",
+        "district": widget.district ?? "",
+        "state": widget.state ?? "",
+        "pincode": widget.pincode ?? "",
+        "mobile": widget.mobile ?? "",
+        "altMobile": widget.altMobile ?? "",
+        "whatsapp": widget.whatsapp ?? "",
+        "native": widget.native ?? "",
+        "religion": widget.religion ?? "",
+        "cast": widget.cast ?? "",
+        "email": widget.email ?? "",
+        "password": widget.password ?? "",
+        "emergencyContact": widget.emergencyContact ?? "",
+        "bloodGroup": widget.bloodGroup ?? "",
+        "fatherName": widget.fatherName ?? "",
+        "fatherMobile": widget.fatherMobile ?? "",
+        "motherName": widget.motherName ?? "",
+        "motherMobile": widget.motherMobile ?? "",
+        "spouseName": widget.spouseName ?? "",
+        "spouseMobile": widget.spouseMobile ?? "",
         "aadhar": aadharController.text,
         "pan": panController.text,
         "epf": epfController.text,
@@ -659,11 +682,12 @@ class _ThirdPageState extends State<ThirdPage> {
         "bank_name": bankNameController.text,
         "account_holder": accountHolderController.text,
         "account_number": accountNumberController.text,
-        "ifsc": ifscController.text,
+        "ifsc": ifscController.text.length == 11 ? ifscController.text : "INVALID_IFSC",
         "front_aadhar_image_bitcode": _frontAadharBitCode ?? "",
         "back_aadhar_image_bitcode": _backAadharBitCode ?? "",
         "signature_image_bitcode": _signatureBitCode ?? "",
         "timestamp": FieldValue.serverTimestamp(),
+        "status": false,
       });
 
       _showSuccessDialog();
@@ -674,10 +698,12 @@ class _ThirdPageState extends State<ThirdPage> {
       );
     } finally {
       setState(() {
-        _isLoading = false; // Hide loading
+        _isLoading = false;
       });
     }
   }
+
+
 
   Widget _buildTextField(String hint, TextEditingController controller, bool isRequired, RegExp? pattern) {
     return Padding(
