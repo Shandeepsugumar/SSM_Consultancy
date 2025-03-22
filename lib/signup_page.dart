@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:camera/camera.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -9,6 +10,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'loginpage.dart';
 import 'package:image/image.dart' as img;
+import 'package:onesignal_flutter/onesignal_flutter.dart';
 
 
 class FirstPage extends StatefulWidget {
@@ -17,6 +19,8 @@ class FirstPage extends StatefulWidget {
 }
 
 class _FirstPageState extends State<FirstPage> {
+  final _formKey = GlobalKey<FormState>();
+
   final TextEditingController nameController = TextEditingController();
   final TextEditingController qualificationController = TextEditingController();
   final TextEditingController experienceController = TextEditingController();
@@ -60,102 +64,130 @@ class _FirstPageState extends State<FirstPage> {
   }
 
   void _navigateToSecondPage() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => SecondPage(
-          name: nameController.text,
-          qualification: qualificationController.text,
-          experience: experienceController.text,
-          dob: dobController.text,
-          age: ageController.text,
-          gender: selectedGender,
-          address: addressController.text,
-          district: districtController.text,
-          state: stateController.text,
-          pincode: pincodeController.text,
-          mobile: mobileController.text,
-          altMobile: altMobileController.text,
-          whatsapp: whatsappController.text, cameras: [],
+    if (_formKey.currentState!.validate()) {
+      // Form is valid, proceed to the next page
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => SecondPage(
+            name: nameController.text,
+            qualification: qualificationController.text,
+            experience: experienceController.text,
+            dob: dobController.text,
+            age: ageController.text,
+            gender: selectedGender,
+            address: addressController.text,
+            district: districtController.text,
+            state: stateController.text,
+            pincode: pincodeController.text,
+            mobile: mobileController.text,
+            altMobile: altMobileController.text,
+            whatsapp: whatsappController.text, cameras: [],
+          ),
         ),
-      ),
-    );
+      );
+    }
+  }
+  String? _validateRequired(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return "This field is required";
+    }
+    return null;
+  }
+
+
+  String? _validateName(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return "Name is required";
+    } else if (!RegExp(r'^[a-zA-Z\s]+$').hasMatch(value)) {
+      return "Name should only contain letters";
+    }
+    return null;
+  }
+
+  String? _validateNumber(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return "This field is required";
+    } else if (!RegExp(r'^\d{10}$').hasMatch(value)) {
+      return "Enter a valid 10-digit number";
+    }
+    return null;
+  }
+
+  String? _validateAge(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return "Age is required";
+    } else if (int.tryParse(value)! < 18) {
+      return "Age must be at least 18";
+    }
+    return null;
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text("Sign Up"),
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
+      appBar: AppBar(title: Text("Sign Up")),
       body: _buildSignUpPage(),
     );
   }
 
   Widget _buildSignUpPage() {
     return SingleChildScrollView(
-      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Image.asset('assets/registeration.png', height: 150),
-          Text(
-            "Sign UP",
-            style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.blue[900]),
-          ),
-          SizedBox(height: 10),
-          Text(
-            "Welcome To the SSM Please Sign Up To Continue",
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 14, color: Colors.grey),
-          ),
-          SizedBox(height: 20),
-          _buildTextField("Name", nameController, false, null),
-          _buildTextField("Education Qualification", qualificationController, false, null),
-          _buildTextField("Experience", experienceController, false, null),
-          Row(
-            children: [
-              Expanded(child: _buildDOBField()),
-              SizedBox(width: 8),
-              Expanded(child: _buildAgeField()),
-            ],
-          ),
-          _buildGenderSelection(),
-          _buildTextField("Permanent Address", addressController, false, null),
-          Row(
-            children: [
-              Expanded(child: _buildTextField("District", districtController, false, null)),
-              SizedBox(width: 8),
-              Expanded(child: _buildTextField("State", stateController, false, null)),
-            ],
-          ),
-          _buildTextField("PinCode", pincodeController, false, null),
-          _buildTextField("Mobile Number", mobileController, false, null),
-          _buildTextField("Alternative Mobile Number", altMobileController, false, null),
-          _buildTextField("WhatsApp Number", whatsappController, false, null),
-          SizedBox(height: 30),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              foregroundColor: Colors.white,
-              backgroundColor: const Color(0xFF00008B),
-              padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 15),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(30),
-              ),
+      padding: EdgeInsets.all(20),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Image.asset('assets/registeration.png', height: 150),
+            Text(
+              "Sign UP",
+              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.blue[900]),
             ),
-            onPressed: _navigateToSecondPage,
-            child: Text("NEXT", style: TextStyle(color: Colors.white, fontSize: 16)),
-          ),
-        ],
+            SizedBox(height: 20),
+            _buildTextField("Name", nameController, true, _validateName),
+            _buildTextField("Education Qualification", qualificationController, true, _validateRequired),
+            _buildTextField("Experience", experienceController, true, _validateRequired),
+            Row(
+              children: [
+                Expanded(child: _buildDOBField()),
+                SizedBox(width: 8),
+                Expanded(child: _buildTextField("Age", ageController, true, _validateAge)),
+              ],
+            ),
+            _buildGenderSelection(),
+            _buildTextField("Permanent Address", addressController, true, _validateRequired),
+            Row(
+              children: [
+                Expanded(child: _buildTextField("District", districtController, true, _validateRequired)),
+                SizedBox(width: 8),
+                Expanded(child: _buildTextField("State", stateController, true, _validateRequired)),
+              ],
+            ),
+            _buildTextField("PinCode", pincodeController, true, null),
+            _buildTextField("Mobile Number", mobileController, true, _validateNumber),
+            _buildTextField("Alternative Mobile Number", altMobileController, true, _validateNumber),
+            _buildTextField("WhatsApp Number", whatsappController, true, _validateNumber),
+            SizedBox(height: 30),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                foregroundColor: Colors.white,
+                backgroundColor: const Color(0xFF00008B),
+                padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 15),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30),
+                ),
+              ),
+              onPressed: _navigateToSecondPage,
+              child: Text("NEXT", style: TextStyle(color: Colors.white, fontSize: 16)),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildTextField(String hint, TextEditingController controller, bool isRequired, RegExp? pattern) {
+  Widget _buildTextField(String hint, TextEditingController controller, bool isRequired, String? Function(String?)? validator) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 15.0),
       child: TextFormField(
@@ -167,15 +199,7 @@ class _FirstPageState extends State<FirstPage> {
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
           contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
         ),
-        validator: (value) {
-          if (isRequired && (value == null || value.trim().isEmpty)) {
-            return "$hint is required";
-          }
-          if (pattern != null && value != null && value.isNotEmpty && !pattern.hasMatch(value)) {
-            return "Enter a valid $hint";
-          }
-          return null;
-        },
+        validator: isRequired ? validator : null,
       ),
     );
   }
@@ -183,7 +207,7 @@ class _FirstPageState extends State<FirstPage> {
   Widget _buildDOBField() {
     return Padding(
       padding: const EdgeInsets.only(bottom: 15.0),
-      child: TextField(
+      child: TextFormField(
         controller: dobController,
         readOnly: true,
         decoration: InputDecoration(
@@ -200,26 +224,7 @@ class _FirstPageState extends State<FirstPage> {
             onPressed: () => _selectDate(context),
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildAgeField() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 15.0),
-      child: TextField(
-        controller: ageController,
-        readOnly: true,
-        decoration: InputDecoration(
-          hintText: "Age",
-          filled: true,
-          fillColor: Colors.grey[200],
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(30),
-            borderSide: BorderSide.none,
-          ),
-          contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-        ),
+        validator: (value) => value == null || value.isEmpty ? "Date of Birth is required" : null,
       ),
     );
   }
@@ -254,6 +259,7 @@ class _FirstPageState extends State<FirstPage> {
     );
   }
 }
+
 
 
 class SecondPage extends StatefulWidget {
@@ -300,6 +306,7 @@ class _SecondPageState extends State<SecondPage> {
 
   bool _passwordVisible = false;
   bool _confirmPasswordVisible = false;
+  final _formKey = GlobalKey<FormState>(); // Create a Form key
 
   // Function to hash password
   String _hashPassword(String password) {
@@ -307,7 +314,21 @@ class _SecondPageState extends State<SecondPage> {
     var digest = sha256.convert(bytes);
     return digest.toString();
   }
-
+  String? _validateRequired(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return "This field is required";
+    }
+    return null;
+  }
+  String? _validateNumber(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return "This field is required";
+    } else if (!RegExp(r'^\d{10}$').hasMatch(value)) {
+      return "Enter a valid 10-digit number";
+    }
+    return null;
+  }
+  
   Future<bool> _isEmailAlreadyRegistered(String email) async {
     try {
       final querySnapshot = await FirebaseFirestore.instance
@@ -323,13 +344,13 @@ class _SecondPageState extends State<SecondPage> {
   void _validateAndProceed() async {
     if (passwordController.text.isEmpty || confirmPasswordController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Password fields cannot be empty")),
+        SnackBar(content: Text("Password fields cannot be empty")),
       );
       return;
     }
     if (passwordController.text != confirmPasswordController.text) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Passwords do not match")),
+        SnackBar(content: Text( "Passwords do not match")),
       );
       return;
     }
@@ -339,17 +360,12 @@ class _SecondPageState extends State<SecondPage> {
 
     if (emailExists) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Email is already registered")),
+        SnackBar(content: Text("Email is already registered")),
       );
       return;
     }
 
     try {
-      // Create user in Firebase Authentication
-      UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: email,
-        password: passwordController.text.trim(),
-      );
 
       // Store user details in Firestore with hashed password
       String hashedPassword = _hashPassword(passwordController.text.trim());
@@ -377,6 +393,7 @@ class _SecondPageState extends State<SecondPage> {
             religion: religionController.text,
             cast: castController.text,
             email: emailController.text,
+            password: hashedPassword, // Pass hashed password
             emergencyContact: emergencyContactController.text,
             bloodGroup: bloodGroupController.text,
             fatherName: fatherNameController.text,
@@ -385,7 +402,6 @@ class _SecondPageState extends State<SecondPage> {
             motherMobile: motherMobileController.text,
             spouseName: spouseNameController.text,
             spouseMobile: spouseMobileController.text,
-            password: hashedPassword, // Pass hashed password
           ),
         ),
       );
@@ -408,51 +424,49 @@ class _SecondPageState extends State<SecondPage> {
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Image.asset('assets/registeration.png', height: 150),
-            const SizedBox(height: 10),
-            Text(
-              "Sign UP",
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: Colors.blue[900],
-              ),
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              "Welcome To the SSM. Please Sign Up To Continue",
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: Colors.grey),
-            ),
-            const SizedBox(height: 20),
-            ..._buildAdditionalTextFields(),
-            _buildPasswordField("Password", passwordController, _passwordVisible, () {
-              setState(() {
-                _passwordVisible = !_passwordVisible;
-              });
-            }),
-            _buildPasswordField("Confirm Password", confirmPasswordController, _confirmPasswordVisible, () {
-              setState(() {
-                _confirmPasswordVisible = !_confirmPasswordVisible;
-              });
-            }),
-            const SizedBox(height: 30),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                foregroundColor: Colors.white,
-                backgroundColor: const Color(0xFF00008B),
-                padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 15),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
+        child: Form( // Wrap fields inside a Form widget
+          key: _formKey, // Assign the GlobalKey
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Image.asset('assets/registeration.png', height: 150),
+              const SizedBox(height: 10),
+              Text(
+                "Sign UP",
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue[900],
                 ),
               ),
-              onPressed: _validateAndProceed,
-              child: const Text("NEXT", style: TextStyle(fontSize: 16)),
-            ),
-          ],
+              const SizedBox(height: 10),
+              const Text(
+                "Welcome To the SSM. Please Sign Up To Continue",
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.grey),
+              ),
+              const SizedBox(height: 20),
+              ..._buildAdditionalTextFields(),
+
+              const SizedBox(height: 30),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  backgroundColor: const Color(0xFF00008B),
+                  padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 15),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                ),
+                onPressed: () {
+                  if (_formKey.currentState!.validate()) { // Validate form fields
+                    _validateAndProceed();
+                  }
+                },
+                child: const Text("NEXT", style: TextStyle(fontSize: 16)),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -484,32 +498,44 @@ class _SecondPageState extends State<SecondPage> {
 
   List<Widget> _buildAdditionalTextFields() {
     return [
-      _buildTextField("Native", nativeController),
-      _buildTextField("Religion", religionController),
-      _buildTextField("Cast", castController),
-      _buildTextField("Email ID", emailController),
-      _buildTextField("Emergency Contact No", emergencyContactController),
-      _buildTextField("Blood Group", bloodGroupController),
-      _buildTextField("Father Name", fatherNameController),
-      _buildTextField("Father Mobile Number", fatherMobileController),
-      _buildTextField("Mother Name", motherNameController),
-      _buildTextField("Mother Mobile Number", motherMobileController),
-      _buildTextField("Spouse Name", spouseNameController),
-      _buildTextField("Spouse Mobile Number", spouseMobileController),
+      _buildTextField("Native", nativeController,true,_validateRequired),
+      _buildTextField("Religion", religionController,true,_validateRequired),
+      _buildTextField("Cast", castController,true,_validateRequired),
+      _buildTextField("Email ID", emailController,true,_validateRequired),
+      _buildPasswordField("Password", passwordController, _passwordVisible, () {
+        setState(() {
+          _passwordVisible = !_passwordVisible;
+        });
+      }),
+      _buildPasswordField("Confirm Password", confirmPasswordController, _confirmPasswordVisible, () {
+        setState(() {
+          _confirmPasswordVisible = !_confirmPasswordVisible;
+        });
+      }),
+      _buildTextField("Emergency Contact No", emergencyContactController,true,_validateRequired),
+      _buildTextField("Blood Group", bloodGroupController,true,_validateRequired),
+      _buildTextField("Father Name", fatherNameController,true,_validateRequired),
+      _buildTextField("Father Mobile Number", fatherMobileController,true,_validateNumber),
+      _buildTextField("Mother Name", motherNameController,true,_validateRequired),
+      _buildTextField("Mother Mobile Number", motherMobileController,true,_validateNumber),
+      _buildTextField("Spouse Name", spouseNameController,true,_validateRequired),
+      _buildTextField("Spouse Mobile Number", spouseMobileController,true,_validateNumber),
     ];
   }
 
-  Widget _buildTextField(String hint, TextEditingController controller) {
+  Widget _buildTextField(String hint, TextEditingController controller, bool isRequired, String? Function(String?)? validator) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 15.0),
-      child: TextField(
+      child: TextFormField(
         controller: controller,
         decoration: InputDecoration(
           labelText: hint,
           filled: true,
           fillColor: Colors.grey[200],
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+          contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
         ),
+        validator: isRequired ? validator : null,
       ),
     );
   }
@@ -556,7 +582,6 @@ class ThirdPage extends StatefulWidget {
   @override
   _ThirdPageState createState() => _ThirdPageState();
 }
-
 class _ThirdPageState extends State<ThirdPage> {
   final ImagePicker _picker = ImagePicker();
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
@@ -581,6 +606,12 @@ class _ThirdPageState extends State<ThirdPage> {
 
   bool _isLoading = false; // Loading state
 
+  String? _validateRequired(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return "This field is required";
+    }
+    return null;
+  }
   // Convert image to Base64
   Future<String> _convertImageToBase64(File image) async {
     final bytes = await image.readAsBytes();
@@ -636,9 +667,33 @@ class _ThirdPageState extends State<ThirdPage> {
       ),
     );
   }
+  // Function to send OneSignal notification
+  Future<void> _sendNotification(String userId, String userName) async {
+    const String oneSignalAppId = "db2613bd-3067-4383-9f88-960b277c11aa";
+    const String oneSignalApiKey = "os_v2_app_3mtbhpjqm5byhh4isyfso7arvicd2ew4ctiumpvngm4fc7zhksqa44rmmxdbwn5yavmszrcr3niiyvogldvfbpzor5pvnb6wwvang5y"; // Found in OneSignal settings
 
+    final Map<String, dynamic> notificationData = {
+      "app_id": oneSignalAppId,
+      "include_external_user_ids": [userId], // Send to specific user
+      "headings": {"en": "Sign Up Successful"},
+      "contents": {"en": "Hello $userName, your registration is successful!"},
+    };
 
+    final response = await http.post(
+      Uri.parse("https://onesignal.com/api/v1/notifications"),
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Basic $oneSignalApiKey",
+      },
+      body: jsonEncode(notificationData),
+    );
 
+    if (response.statusCode == 200) {
+      print("Notification sent successfully!");
+    } else {
+      print("Failed to send notification: ${response.body}");
+    }
+  }
   // Function to store data in Firestore
   Future<void> _storeUserData(BuildContext context) async {
     if (!_formKey.currentState!.validate()) return;
@@ -648,51 +703,85 @@ class _ThirdPageState extends State<ThirdPage> {
     });
 
     try {
-      await FirebaseFirestore.instance.collection("users").add({
-        "name": widget.name ?? "Unknown",
-        "qualification": widget.qualification ?? "Unknown",
-        "experience": widget.experience ?? "0 years",
-        "dob": widget.dob ?? "",
-        "age": widget.age ?? "",
-        "gender": widget.gender ?? "",
-        "address": widget.address ?? "",
-        "district": widget.district ?? "",
-        "state": widget.state ?? "",
-        "pincode": widget.pincode ?? "",
-        "mobile": widget.mobile ?? "",
-        "altMobile": widget.altMobile ?? "",
-        "whatsapp": widget.whatsapp ?? "",
-        "native": widget.native ?? "",
-        "religion": widget.religion ?? "",
-        "cast": widget.cast ?? "",
-        "email": widget.email ?? "",
-        "password": widget.password ?? "",
-        "emergencyContact": widget.emergencyContact ?? "",
-        "bloodGroup": widget.bloodGroup ?? "",
-        "fatherName": widget.fatherName ?? "",
-        "fatherMobile": widget.fatherMobile ?? "",
-        "motherName": widget.motherName ?? "",
-        "motherMobile": widget.motherMobile ?? "",
-        "spouseName": widget.spouseName ?? "",
-        "spouseMobile": widget.spouseMobile ?? "",
-        "aadhar": aadharController.text,
-        "pan": panController.text,
-        "epf": epfController.text,
-        "esi": esiController.text,
-        "bank_name": bankNameController.text,
-        "account_holder": accountHolderController.text,
-        "account_number": accountNumberController.text,
-        "ifsc": ifscController.text.length == 11 ? ifscController.text : "INVALID_IFSC",
-        "front_aadhar_image_bitcode": _frontAadharBitCode ?? "",
-        "back_aadhar_image_bitcode": _backAadharBitCode ?? "",
-        "signature_image_bitcode": _signatureBitCode ?? "",
-        "timestamp": FieldValue.serverTimestamp(),
-        "status": false,
-      });
+      // Register the user in Firebase Authentication
+      UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: widget.email!,
+        password: widget.password!,
+      );
 
-      _showSuccessDialog();
+      User? user = userCredential.user;
+
+      if (user != null) {
+        // Send email verification
+        await user.sendEmailVerification();
+
+        // Store user data in Firestore
+        await FirebaseFirestore.instance.collection("users").add({
+          "name": widget.name ?? "Unknown",
+          "qualification": widget.qualification ?? "Unknown",
+          "experience": widget.experience ?? "0 years",
+          "dob": widget.dob ?? "",
+          "age": widget.age ?? "",
+          "gender": widget.gender ?? "",
+          "address": widget.address ?? "",
+          "district": widget.district ?? "",
+          "state": widget.state ?? "",
+          "pincode": widget.pincode ?? "",
+          "mobile": widget.mobile ?? "",
+          "altMobile": widget.altMobile ?? "",
+          "whatsapp": widget.whatsapp ?? "",
+          "native": widget.native ?? "",
+          "religion": widget.religion ?? "",
+          "cast": widget.cast ?? "",
+          "email": widget.email ?? "",
+          "password": widget.password ?? "",
+          "emergencyContact": widget.emergencyContact ?? "",
+          "bloodGroup": widget.bloodGroup ?? "",
+          "fatherName": widget.fatherName ?? "",
+          "fatherMobile": widget.fatherMobile ?? "",
+          "motherName": widget.motherName ?? "",
+          "motherMobile": widget.motherMobile ?? "",
+          "spouseName": widget.spouseName ?? "",
+          "spouseMobile": widget.spouseMobile ?? "",
+          "aadhar": aadharController.text,
+          "pan": panController.text,
+          "epf": epfController.text,
+          "esi": esiController.text,
+          "bank_name": bankNameController.text,
+          "account_holder": accountHolderController.text,
+          "account_number": accountNumberController.text,
+          "ifsc": ifscController.text.length == 11 ? ifscController.text : "INVALID_IFSC",
+          "front_aadhar_image_bitcode": _frontAadharBitCode ?? "",
+          "back_aadhar_image_bitcode": _backAadharBitCode ?? "",
+          "signature_image_bitcode": _signatureBitCode ?? "",
+          "timestamp": FieldValue.serverTimestamp(),
+          "status": false,
+        });
+
+        await _sendNotification(user.uid, widget.name ?? "User");
+        _showSuccessDialog();
+      }
+    } on FirebaseAuthException catch (e) {
+      print("Firebase Auth Error: ${e.message}");
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Auth Error: ${e.message}")),
+      );
+
+      setState(() => _isLoading = false);
+      return;
+    } on FirebaseException catch (e) {
+      print("Firestore Error: ${e.message}");
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Database Error: ${e.message}")),
+      );
+
+      setState(() => _isLoading = false);
+      return;
     } catch (error) {
       print("Error storing data: $error");
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Failed to store data. Please try again.")),
       );
@@ -704,8 +793,7 @@ class _ThirdPageState extends State<ThirdPage> {
   }
 
 
-
-  Widget _buildTextField(String hint, TextEditingController controller, bool isRequired, RegExp? pattern) {
+  Widget _buildTextField(String hint, TextEditingController controller, bool isRequired, String? Function(String?)? validator) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 15.0),
       child: TextFormField(
@@ -717,15 +805,7 @@ class _ThirdPageState extends State<ThirdPage> {
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
           contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
         ),
-        validator: (value) {
-          if (isRequired && (value == null || value.trim().isEmpty)) {
-            return "$hint is required";
-          }
-          if (pattern != null && value != null && value.isNotEmpty && !pattern.hasMatch(value)) {
-            return "Enter a valid $hint";
-          }
-          return null;
-        },
+        validator: isRequired ? validator : null,
       ),
     );
   }
@@ -743,14 +823,14 @@ class _ThirdPageState extends State<ThirdPage> {
               child: Column(
                 children: [
                   Image.asset('assets/registeration.png', height: 150),
-                  _buildTextField("Aadhar Number (Optional)", aadharController, false, null),
-                  _buildTextField("PAN Number", panController, false, null),
-                  _buildTextField("EPF Number", epfController, false, null),
-                  _buildTextField("ESI Number", esiController, false, null),
-                  _buildTextField("Bank Name", bankNameController, false, null),
-                  _buildTextField("Account Holder Name", accountHolderController, false, null),
-                  _buildTextField("Account Number", accountNumberController, false, null),
-                  _buildTextField("IFSC Code", ifscController, false, null),
+                  _buildTextField("Aadhar Number (Optional)", aadharController, true, _validateRequired),
+                  _buildTextField("PAN Number", panController, true, _validateRequired),
+                  _buildTextField("EPF Number", epfController, true, _validateRequired),
+                  _buildTextField("ESI Number", esiController, true, _validateRequired),
+                  _buildTextField("Bank Name", bankNameController, true, _validateRequired),
+                  _buildTextField("Account Holder Name", accountHolderController, true, _validateRequired),
+                  _buildTextField("Account Number", accountNumberController, true, _validateRequired),
+                  _buildTextField("IFSC Code", ifscController, true, _validateRequired),
 
                   SizedBox(height: 10),
 

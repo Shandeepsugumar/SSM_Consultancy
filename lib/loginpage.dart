@@ -19,6 +19,8 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController _passwordController = TextEditingController();
   bool _isLoading = false;
   String? _errorMessage;
+  bool _isPasswordVisible = false;
+
 
   /// Function to hash the password
   String _hashPassword(String password) {
@@ -53,7 +55,7 @@ class _LoginPageState extends State<LoginPage> {
       DocumentSnapshot userDoc = querySnapshot.docs.first;
       Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
 
-      // Check the status field
+      // Check if status is false (Verification required)
       if (userData.containsKey("status") && userData["status"] == false) {
         _showVerificationPopup();
         return;
@@ -62,7 +64,7 @@ class _LoginPageState extends State<LoginPage> {
       // Hash entered password
       String enteredPasswordHash = _hashPassword(_passwordController.text.trim());
 
-      // Compare hashed password with Firestore data
+      // Compare hashed password with Firestore stored hash
       if (userData["password"] != enteredPasswordHash) {
         setState(() {
           _errorMessage = "Incorrect password.";
@@ -70,21 +72,11 @@ class _LoginPageState extends State<LoginPage> {
         return;
       }
 
-      // Authenticate with FirebaseAuth using email and password
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(), // Pass raw password
-      );
-
       // Navigate to HomePage after successful login
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => HomePage()),
       );
-    } on FirebaseAuthException catch (e) {
-      setState(() {
-        _errorMessage = e.message ?? "Authentication failed.";
-      });
     } catch (e) {
       setState(() {
         _errorMessage = "An unexpected error occurred.";
@@ -93,6 +85,7 @@ class _LoginPageState extends State<LoginPage> {
       setState(() => _isLoading = false);
     }
   }
+
   void _showVerificationPopup() {
     showDialog(
       context: context,
@@ -167,7 +160,7 @@ class _LoginPageState extends State<LoginPage> {
                   // Password Field
                   TextFormField(
                     controller: _passwordController,
-                    obscureText: true,
+                    obscureText: !_isPasswordVisible,
                     decoration: InputDecoration(
                       labelText: 'Password',
                       filled: true,
@@ -177,6 +170,16 @@ class _LoginPageState extends State<LoginPage> {
                         borderSide: BorderSide.none,
                       ),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _isPasswordVisible = !_isPasswordVisible;
+                          });
+                        },
+                      ),
                     ),
                     validator: (value) {
                       if (value == null || value.isEmpty) return 'Please enter your password';

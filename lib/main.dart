@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:geolocator/geolocator.dart';
 import 'loginpage.dart';
+import 'home_page_user.dart';
 
 List<CameraDescription> cameras = [];
 
@@ -40,10 +41,19 @@ class _SplashScreenState extends State<SplashScreen> {
     // ✅ Navigate to LoginPage after 5 seconds
     Timer(Duration(seconds: 5), () {
       if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => LoginPage()),
-        );
+        FirebaseAuth.instance.authStateChanges().listen((User? user) {
+          if (user == null) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => LoginPage()),
+            );
+          } else {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => HomePage()),
+            );
+          }
+        });
       }
     });
   }
