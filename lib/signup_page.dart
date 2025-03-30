@@ -716,7 +716,8 @@ class _ThirdPageState extends State<ThirdPage> {
         await user.sendEmailVerification();
 
         // Store user data in Firestore
-        await FirebaseFirestore.instance.collection("users").add({
+        await FirebaseFirestore.instance.collection("users").doc(userCredential.user!.uid).set({
+          "uid": userCredential.user!.uid, // Store user ID
           "name": widget.name ?? "Unknown",
           "qualification": widget.qualification ?? "Unknown",
           "experience": widget.experience ?? "0 years",

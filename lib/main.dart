@@ -38,6 +38,11 @@ class _SplashScreenState extends State<SplashScreen> {
     super.initState();
     startTracking(); // Start tracking location
 
+    // // Sign out any previously logged-in user
+    // Future.delayed(Duration.zero, () async {
+    //   await FirebaseAuth.instance.signOut(); // Force logout before checking authentication
+    // });
+
     // ✅ Navigate to LoginPage after 5 seconds
     Timer(Duration(seconds: 5), () {
       if (mounted) {

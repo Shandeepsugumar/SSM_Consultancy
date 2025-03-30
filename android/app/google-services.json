@@ -8,6 +8,25 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:237099479999:android:3dca4276d75f4f3b80a70a",
+        "android_client_info": {
+          "package_name": "com.example.admin_ssm"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAw8KvUkuSV-gBTjEQqJv27AFlck0XPTIA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:237099479999:android:07070b0fcf942a9080a70a",
         "android_client_info": {
           "package_name": "com.example.consultancy"

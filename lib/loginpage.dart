@@ -28,6 +28,18 @@ class _LoginPageState extends State<LoginPage> {
     var digest = sha256.convert(bytes); // Apply SHA-256 hashing
     return digest.toString(); // Convert hash digest to string
   }
+  void checkUserExists(String email) async {
+    try {
+      var methods = await FirebaseAuth.instance.fetchSignInMethodsForEmail(email);
+      if (methods.isEmpty) {
+        print("No user found with this email.");
+      } else {
+        print("User exists with methods: $methods");
+      }
+    } catch (e) {
+      print("Error checking user: $e");
+    }
+  }
 
   /// Firebase Authentication Function
   Future<void> _loginUser() async {
@@ -243,7 +255,10 @@ class _LoginPageState extends State<LoginPage> {
                   // Forgot Password
                   TextButton(
                     onPressed: () {
-                      // Handle forgot password logic
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => ForgotPasswordScreen()),
+                      );
                     },
                     child: const Text(
                       'Forgot Password?',
@@ -254,6 +269,70 @@ class _LoginPageState extends State<LoginPage> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+class ForgotPasswordScreen extends StatefulWidget {
+  @override
+  _ForgotPasswordScreenState createState() => _ForgotPasswordScreenState();
+}
+
+class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
+  final TextEditingController emailController = TextEditingController();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  void resetPassword() async {
+    String email = emailController.text.trim();
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please enter your email')),
+      );
+      return;
+    }
+
+    try {
+      await _auth.sendPasswordResetEmail(email: email);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Password reset email sent! Check your inbox.')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: ${e.toString()}')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Forgot Password')),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'Enter your email to receive a password reset link',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16),
+            ),
+            SizedBox(height: 20),
+            TextField(
+              controller: emailController,
+              keyboardType: TextInputType.emailAddress,
+              decoration: InputDecoration(
+                labelText: 'Email',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: resetPassword,
+              child: Text('Send Reset Email'),
+            ),
+          ],
         ),
       ),
     );
