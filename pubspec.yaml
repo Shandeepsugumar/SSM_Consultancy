@@ -34,7 +34,6 @@ dependencies:
   shared_preferences: ^2.5.3  # Use the latest version available
 
 
-
 dev_dependencies:
   flutter_test:
     sdk: flutter
