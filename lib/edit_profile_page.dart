@@ -5,7 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 class EditProfilePage extends StatefulWidget {
   final Map<String, dynamic> userData;
 
-  EditProfilePage({required this.userData});
+  const EditProfilePage({super.key, required this.userData});
 
   @override
   _EditProfilePageState createState() => _EditProfilePageState();
@@ -226,7 +226,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                   ),
                 ),
                 SizedBox(height: 30),
-                Container(
+                SizedBox(
                   width: double.infinity,
                   height: 55,
                   child: ElevatedButton(

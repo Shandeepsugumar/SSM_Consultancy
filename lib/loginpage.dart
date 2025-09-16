@@ -1,10 +1,8 @@
-import 'package:crypto/crypto.dart';
+import 'package:consultancy/signup_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'home_page_user.dart';
-import 'signup_page.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'dart:convert';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -21,27 +19,7 @@ class _LoginPageState extends State<LoginPage> {
   String? _errorMessage;
   bool _isPasswordVisible = false;
 
-
-  /// Function to hash the password
-  String _hashPassword(String password) {
-    var bytes = utf8.encode(password); // Convert password to UTF-8 encoded bytes
-    var digest = sha256.convert(bytes); // Apply SHA-256 hashing
-    return digest.toString(); // Convert hash digest to string
-  }
-  void checkUserExists(String email) async {
-    try {
-      var methods = await FirebaseAuth.instance.fetchSignInMethodsForEmail(email);
-      if (methods.isEmpty) {
-        print("No user found with this email.");
-      } else {
-        print("User exists with methods: $methods");
-      }
-    } catch (e) {
-      print("Error checking user: $e");
-    }
-  }
-
-  /// Firebase Authentication Function
+  /// ✅ Firebase Authentication Function
   Future<void> _loginUser() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -51,44 +29,39 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     try {
-      // Fetch user details from Firestore
-      QuerySnapshot querySnapshot = await FirebaseFirestore.instance
+      // Step 1: Authenticate using Firebase Authentication
+      print('Trying to log in user...');
+      UserCredential userCredential =
+          await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+
+      print('Logged in: ${userCredential.user?.uid}');
+
+      DocumentSnapshot userDoc = await FirebaseFirestore.instance
           .collection("users")
-          .where("email", isEqualTo: _emailController.text.trim())
+          .doc(userCredential.user!.uid)
           .get();
 
-      if (querySnapshot.docs.isEmpty) {
+      print('User doc exists: ${userDoc.exists}');
+
+      if (!userDoc.exists) {
         setState(() {
-          _errorMessage = "No account found for this email.";
+          _errorMessage = "No user account found.";
         });
         return;
       }
 
-      DocumentSnapshot userDoc = querySnapshot.docs.first;
-      Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
-
-      // Check if status is false (Verification required)
-      if (userData.containsKey("status") && userData["status"] == false) {
-        _showVerificationPopup();
-        return;
-      }
-
-      // Hash entered password
-      String enteredPasswordHash = _hashPassword(_passwordController.text.trim());
-
-      // Compare hashed password with Firestore stored hash
-      if (userData["password"] != enteredPasswordHash) {
-        setState(() {
-          _errorMessage = "Incorrect password.";
-        });
-        return;
-      }
-
-      // Navigate to HomePage after successful login
+      // Step 3: Navigate to Home Page if authentication & Firestore data exist
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => HomePage()),
       );
+    } on FirebaseAuthException catch (e) {
+      setState(() {
+        _errorMessage = e.message ?? "Authentication failed.";
+      });
     } catch (e) {
       setState(() {
         _errorMessage = "An unexpected error occurred.";
@@ -98,30 +71,54 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  void _showVerificationPopup() {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text("Account Under Verification"),
-          content: const Text(
-              "Your account is under verification. Please wait for some time."),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              child: const Text("OK"),
-            ),
-          ],
-        );
-      },
-    );
+  // Add the logout function
+  static Future<void> logout(BuildContext context) async {
+    try {
+      await FirebaseAuth.instance.signOut();
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => LoginPage()),
+        (route) => false,
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error logging out: $e')),
+      );
+    }
   }
 
+  @override
+  void initState() {
+    super.initState();
+    _checkIfLoggedIn();
+  }
+
+  void _checkIfLoggedIn() async {
+    setState(() {
+      _isLoading = true;
+    });
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      // User is already logged in, go to HomePage
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => HomePage()),
+        );
+      });
+    } else {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
     return Scaffold(
       body: Scrollbar(
         thumbVisibility: true,
@@ -138,7 +135,11 @@ class _LoginPageState extends State<LoginPage> {
                   const SizedBox(height: 50),
                   Text(
                     'Login',
-                    style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold, color: Colors.blue[900]),
+                    style: TextStyle(
+                      fontSize: 30,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue[900],
+                    ),
                   ),
                   const SizedBox(height: 10),
                   const Text(
@@ -159,17 +160,23 @@ class _LoginPageState extends State<LoginPage> {
                         borderRadius: BorderRadius.circular(10),
                         borderSide: BorderSide.none,
                       ),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 15),
                     ),
                     validator: (value) {
-                      if (value == null || value.isEmpty) return 'Please enter your email';
-                      if (!RegExp(r'^[\w-.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) return 'Enter a valid email';
+                      if (value == null || value.isEmpty) {
+                        return 'Please enter your email';
+                      }
+                      if (!RegExp(r'^[\w-.]+@([\w-]+\.)+[\w-]{2,4}$')
+                          .hasMatch(value)) {
+                        return 'Enter a valid email';
+                      }
                       return null;
                     },
                   ),
                   const SizedBox(height: 20),
 
-                  // Password Field
+                  // Password Field with Visibility Toggle
                   TextFormField(
                     controller: _passwordController,
                     obscureText: !_isPasswordVisible,
@@ -181,10 +188,14 @@ class _LoginPageState extends State<LoginPage> {
                         borderRadius: BorderRadius.circular(10),
                         borderSide: BorderSide.none,
                       ),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 15),
                       suffixIcon: IconButton(
                         icon: Icon(
-                          _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                          _isPasswordVisible
+                              ? Icons.visibility
+                              : Icons.visibility_off,
+                          color: Colors.grey[700],
                         ),
                         onPressed: () {
                           setState(() {
@@ -194,8 +205,12 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                     validator: (value) {
-                      if (value == null || value.isEmpty) return 'Please enter your password';
-                      if (value.length < 6) return 'Password must be at least 6 characters';
+                      if (value == null || value.isEmpty) {
+                        return 'Please enter your password';
+                      }
+                      if (value.length < 6) {
+                        return 'Password must be at least 6 characters';
+                      }
                       return null;
                     },
                   ),
@@ -218,14 +233,15 @@ class _LoginPageState extends State<LoginPage> {
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(30),
                       ),
-                      padding: const EdgeInsets.symmetric(horizontal: 100, vertical: 15),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 100, vertical: 15),
                     ),
                     child: _isLoading
                         ? const CircularProgressIndicator(color: Colors.white)
                         : const Text(
-                      'LOGIN',
-                      style: TextStyle(color: Colors.white),
-                    ),
+                            'LOGIN',
+                            style: TextStyle(color: Colors.white),
+                          ),
                   ),
 
                   const SizedBox(height: 20),
@@ -239,7 +255,8 @@ class _LoginPageState extends State<LoginPage> {
                         onTap: () {
                           Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (context) => FirstPage()),
+                            MaterialPageRoute(
+                                builder: (context) => FirstPage()),
                           );
                         },
                         child: Text(
@@ -257,7 +274,8 @@ class _LoginPageState extends State<LoginPage> {
                     onPressed: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => ForgotPasswordScreen()),
+                        MaterialPageRoute(
+                            builder: (context) => ForgotPasswordScreen()),
                       );
                     },
                     child: const Text(
@@ -274,7 +292,10 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 }
+
 class ForgotPasswordScreen extends StatefulWidget {
+  const ForgotPasswordScreen({super.key});
+
   @override
   _ForgotPasswordScreenState createState() => _ForgotPasswordScreenState();
 }

@@ -32,6 +32,8 @@ dependencies:
   latlong2: ^0.9.1
   flutter_image_compress: ^2.4.0
   shared_preferences: ^2.5.3  # Use the latest version available
+  flutter_background_service: ^5.0.5
+  intl: ^0.19.0
 
 
 dev_dependencies:

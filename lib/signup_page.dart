@@ -14,6 +14,8 @@ import 'package:onesignal_flutter/onesignal_flutter.dart';
 
 
 class FirstPage extends StatefulWidget {
+  const FirstPage({super.key});
+
   @override
   _FirstPageState createState() => _FirstPageState();
 }
@@ -266,7 +268,7 @@ class SecondPage extends StatefulWidget {
   final List cameras;
   final String name, qualification, experience, dob, age, gender, address, district, state, pincode, mobile, altMobile, whatsapp;
 
-  SecondPage({
+  const SecondPage({
     required this.cameras,
     required this.name,
     required this.qualification,
@@ -281,8 +283,8 @@ class SecondPage extends StatefulWidget {
     required this.mobile,
     required this.altMobile,
     required this.whatsapp,
-    Key? key,
-  }) : super(key: key);
+    super.key,
+  });
 
   @override
   _SecondPageState createState() => _SecondPageState();
@@ -375,7 +377,7 @@ class _SecondPageState extends State<SecondPage> {
         context,
         MaterialPageRoute(
           builder: (context) => ThirdPage(
-            cameras: (widget.cameras as List).map((e) => e as CameraDescription).toList(),
+            cameras: (widget.cameras).map((e) => e as CameraDescription).toList(),
             name: widget.name,
             qualification: widget.qualification,
             experience: widget.experience,
@@ -549,7 +551,7 @@ class ThirdPage extends StatefulWidget {
   final String native, religion, cast, email, password, emergencyContact,
       bloodGroup, fatherName, fatherMobile, motherName, motherMobile, spouseName, spouseMobile;
 
-  ThirdPage({
+  const ThirdPage({super.key, 
     required this.cameras,
     required this.name,
     required this.qualification,
@@ -705,8 +707,8 @@ class _ThirdPageState extends State<ThirdPage> {
     try {
       // Register the user in Firebase Authentication
       UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: widget.email!,
-        password: widget.password!,
+        email: widget.email,
+        password: widget.password,
       );
 
       User? user = userCredential.user;
