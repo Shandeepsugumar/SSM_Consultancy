@@ -1,0 +1,292 @@
+// CORRECTED Firestore Security Rules for Consultancy App - Employee Registration & Approval System
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return request.auth != null && 
+             exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    
+    // Helper function to check if user is an approved employee
+    function isApprovedEmployee() {
+      return request.auth != null && 
+             exists(/databases/$(database)/documents/employees/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/employees/$(request.auth.uid)).data.status == 'approved' &&
+             get(/databases/$(database)/documents/employees/$(request.auth.uid)).data.eid != null;
+    }
+    
+    // Helper function to get employee's Eid
+    function getEmployeeEid() {
+      return get(/databases/$(database)/documents/employees/$(request.auth.uid)).data.eid;
+    }
+    
+    // Helper function to get employee's custom UID
+    function getEmployeeCustomUid() {
+      return get(/databases/$(database)/documents/employees/$(request.auth.uid)).data.customUid;
+    }
+    
+    // Admins collection - defines who has admin privileges
+    match /admins/{adminId} {
+      // Allow reading own admin record for initial setup and verification
+      allow read: if request.auth != null && request.auth.uid == adminId;
+      
+      // Only existing admins can manage other admin records
+      allow create, update, delete: if isAdmin();
+    }
+    
+    // Employees collection - employee registration and approval
+    match /employees/{firebaseUid} {
+      // Anyone can register (create their own employee record)
+      allow create: if request.auth != null && 
+                       request.auth.uid == firebaseUid &&
+                       request.resource.data.firebaseUid == firebaseUid &&
+                       request.resource.data.status == 'pending' &&
+                       !('eid' in request.resource.data); // No Eid during registration
+      
+      // Employees can read their own record
+      allow read: if request.auth != null && request.auth.uid == firebaseUid;
+      
+      // Admins can read all employee records
+      allow read: if isAdmin();
+      
+      // Only admins can approve employees and assign Eid
+      allow update: if isAdmin() && (
+        // Admin can approve and assign Eid
+        (resource.data.status == 'pending' && 
+         request.resource.data.status == 'approved' &&
+         request.resource.data.eid is string &&
+         request.resource.data.eid.size() > 0) ||
+        // Admin can reject employees
+        (resource.data.status == 'pending' && 
+         request.resource.data.status == 'rejected') ||
+        // Admin can update other employee details
+        (resource.data.status == 'approved')
+      );
+      
+      // Only admins can delete employee records
+      allow delete: if isAdmin();
+    }
+    
+    // Users collection - basic user information (linked by Eid)
+    match /users/{eid} {
+      // Approved employees can read/write their own user data using their Eid
+      allow read, write: if isApprovedEmployee() && 
+                            getEmployeeEid() == eid;
+      
+      // Admins can read all user records
+      allow read: if isAdmin();
+      
+      // Admins can create/update user records
+      allow write: if isAdmin();
+    }
+    
+    // Schedule collection - work schedules (managed by admin, readable by employees)
+    match /schedule/{scheduleId} {
+      // Approved employees can read schedules
+      allow read: if isApprovedEmployee();
+      
+      // Only admins can create/update/delete schedules
+      allow write: if isAdmin();
+    }
+    
+    // Attendance collection - employee attendance records (organized by Eid)
+    match /attendance/{eid} {
+      // Approved employees can read/write their own attendance using their Eid
+      allow read, write: if isApprovedEmployee() && 
+                            getEmployeeEid() == eid;
+      
+      // Admins can read all attendance records
+      allow read: if isAdmin();
+      
+      // Subcollection for dates under each employee's Eid
+      match /dates/{dateId} {
+        // Approved employees can read/write their own date-specific attendance
+        allow read, write: if isApprovedEmployee() && 
+                              getEmployeeEid() == eid;
+        
+        // Admins can read all date-specific attendance records
+        allow read: if isAdmin();
+      }
+    }
+    
+    // Live Locations collection - real-time location tracking (organized by custom UID)
+    match /live_locations/{customUid} {
+      // Approved employees can read their own location data using their custom UID
+      allow read: if isApprovedEmployee() && getEmployeeCustomUid() == customUid;
+      
+      // Approved employees can write their own location data (with custom UID validation)
+      allow write: if isApprovedEmployee() && 
+                      getEmployeeCustomUid() == customUid &&
+                      request.resource.data.employeeId == customUid; // Ensure custom UID is stored in document
+      
+      // Admins can read all live location data
+      allow read: if isAdmin();
+      
+      // Admins can write live location data
+      allow write: if isAdmin();
+    }
+    
+    // Salary Records collection - employee salary information (organized by Eid)
+    match /salary_records/{eid} {
+      // Approved employees can read their own salary records using their Eid
+      allow read: if isApprovedEmployee() && 
+                     getEmployeeEid() == eid;
+      
+      // Only admins can create/update/delete salary records
+      allow write: if isAdmin() && 
+                      request.resource.data.eid == eid; // Ensure Eid is stored in document
+      
+      // Admins can read all salary records
+      allow read: if isAdmin();
+    }
+    
+    // Location tracking collection - individual tracking records with Eid field
+    match /location_tracking/{documentId} {
+      // Approved employees can read their own location tracking records
+      allow read: if isApprovedEmployee() && 
+                     resource.data.eid == getEmployeeEid();
+      
+      // Approved employees can create their own location tracking records
+      allow create: if isApprovedEmployee() && 
+                       request.resource.data.eid == getEmployeeEid();
+      
+      // Approved employees can update their own location tracking records
+      allow update: if isApprovedEmployee() && 
+                       resource.data.eid == getEmployeeEid() &&
+                       request.resource.data.eid == getEmployeeEid();
+      
+      // Admins can read all location tracking data
+      allow read: if isAdmin();
+      
+      // Admins can write all location tracking data
+      allow write: if isAdmin();
+    }
+    
+    // Employee lookup by email (for login purposes) - OPTIONAL
+    match /employee_lookup/{email} {
+      // Anyone can read lookup data (needed for login)
+      allow read: if request.auth != null;
+      
+      // Only admins can create/update lookup records
+      allow write: if isAdmin();
+    }
+    
+    // Default deny rule for any other collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
+/*
+FIXES APPLIED:
+
+1. ADMIN COLLECTION:
+   - Added separate read permission for users to check their own admin status
+   - This allows the isAdmin() function to work properly
+
+2. LIVE LOCATIONS:
+   - Separated read and write permissions to avoid conflicts
+   - Added proper admin write permissions
+
+3. LOCATION TRACKING:
+   - Changed from /location_tracking/{eid} to /location_tracking/{documentId}
+   - This collection stores individual tracking records with eid as a field
+   - Added separate create, update permissions for better control
+
+4. EMPLOYEE UPDATES:
+   - Added permission for admins to update approved employee records
+   - This allows admins to modify employee details after approval
+
+5. PERMISSION CLARITY:
+   - Separated read/write permissions where needed
+   - Added explicit admin write permissions where missing
+
+WORKFLOW EXPLANATION:
+
+1. EMPLOYEE REGISTRATION:
+   - Employee registers with Firebase Auth
+   - App creates record in /employees/{firebaseUid} with status: 'pending'
+   - No Eid assigned yet
+
+2. ADMIN APPROVAL:
+   - Admin reviews pending employees in /employees collection
+   - Admin approves employee and assigns unique Eid
+   - Employee status changes to 'approved'
+   - Admin creates user profile in /users/{eid}
+
+3. EMPLOYEE OPERATIONS:
+   - All employee operations use their assigned Eid
+   - Attendance: /attendance/{eid}/dates/{date}
+   - Live Location: /live_locations/{eid}
+   - Salary Records: /salary_records/{eid}
+   - Location Tracking: /location_tracking/{auto-generated-id} with eid field
+   - User Profile: /users/{eid}
+
+4. ADMIN SETUP:
+   - Create initial admin record: /admins/{adminFirebaseUid}: {role: "admin"}
+   - Admin can then approve employees and manage all collections
+
+5. DATA STRUCTURE EXAMPLES:
+   
+   /employees/firebaseUid123:
+   {
+     firebaseUid: "firebaseUid123",
+     email: "employee@company.com",
+     name: "John Doe",
+     status: "approved",
+     eid: "EMP001",
+     createdAt: timestamp,
+     approvedAt: timestamp,
+     approvedBy: "adminFirebaseUid"
+   }
+   
+   /users/EMP001:
+   {
+     eid: "EMP001",
+     firebaseUid: "firebaseUid123",
+     email: "employee@company.com",
+     name: "John Doe",
+     status: true,
+     createdAt: timestamp
+   }
+   
+   /attendance/EMP001/dates/2025-10-20:
+   {
+     eid: "EMP001",
+     date: "2025-10-20",
+     checkIn: timestamp,
+     checkOut: timestamp,
+     location: geopoint
+   }
+   
+   /live_locations/EMP001:
+   {
+     eid: "EMP001",
+     location: geopoint,
+     timestamp: timestamp,
+     accuracy: number
+   }
+   
+   /location_tracking/auto-generated-id:
+   {
+     eid: "EMP001",
+     location: geopoint,
+     timestamp: timestamp,
+     accuracy: number,
+     activity: "working"
+   }
+   
+   /salary_records/EMP001:
+   {
+     eid: "EMP001",
+     basicSalary: 50000,
+     allowances: 5000,
+     deductions: 2000,
+     netSalary: 53000,
+     month: "October",
+     year: 2025
+   }
+*/

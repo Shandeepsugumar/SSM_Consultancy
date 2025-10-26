@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:consultancy/loginpage.dart';
 import 'package:consultancy/models/schedule_model.dart';
 import 'package:consultancy/services/schedule_service.dart';
+import 'package:consultancy/session_manager.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -30,17 +31,22 @@ class _HomePageState extends State<HomePage> {
   Timer? _locationTimer;
   DateTime? _lastLocationUpdate;
 
-  final List<Widget> _pages = [
-    HomeScreen(),
-    SchedulePage(),
-    AttendanceScreen(),
-    AccountsScreen(),
-    ProfilePage(),
-  ];
+  // Create key to force refresh of HomeScreen
+  final GlobalKey<_HomeScreenState> _homeScreenKey =
+      GlobalKey<_HomeScreenState>();
+
+  late final List<Widget> _pages;
 
   @override
   void initState() {
     super.initState();
+    _pages = [
+      HomeScreen(key: _homeScreenKey),
+      SchedulePage(),
+      AttendanceScreen(),
+      // AccountsScreen(),
+      ProfilePage(),
+    ];
     _startSimpleLocationTracking();
   }
 
@@ -66,10 +72,20 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _updateLocationToFirestore() async {
     try {
-      User? user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        print('No user logged in, skipping location update');
+      // Get user data from SessionManager to get the correct custom UID
+      String? currentUserUid = await SessionManager.getCurrentUserUid();
+      Map<String, dynamic>? currentUserData =
+          await SessionManager.getCurrentUserData();
+
+      if (currentUserUid == null || currentUserData == null) {
+        print('No user data found in SessionManager, skipping location update');
         return;
+      }
+
+      // Ensure UID mapping exists for Firebase Auth
+      User? firebaseUser = FirebaseAuth.instance.currentUser;
+      if (firebaseUser != null) {
+        await _ensureUidMapping(firebaseUser.uid, currentUserUid);
       }
 
       LocationPermission permission = await Geolocator.checkPermission();
@@ -87,34 +103,79 @@ class _HomePageState extends State<HomePage> {
       Position position = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high);
 
-      DocumentSnapshot userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
-      String? name = (userDoc.data() as Map<String, dynamic>?)?['name'] ??
-          user.email ??
-          'Unknown';
+      String userName = currentUserData['name'] ?? 'Unknown';
+      String? eid =
+          currentUserData['Eid']; // Get the Eid field from users collection
+      String email = currentUserData['email'] ?? '';
+      String mobile = currentUserData['mobile'] ?? '';
+
+      print(
+          'Location update - User: $userName, Eid: $eid, Custom UID: $currentUserUid');
+
+      // Use custom UID as document ID for live_locations
+      final String liveDocId = currentUserUid;
 
       await FirebaseFirestore.instance
           .collection('live_locations')
-          .doc(user.uid)
+          .doc(liveDocId)
           .set({
-        'name': name,
-        'id': user.uid,
+        'employeeId': currentUserUid, // Store the custom employee ID
+        'Eid': eid, // Store the Eid field from users collection
+        'name': userName, // Store the actual employee name
+        'email': email,
+        'mobile': mobile,
         'latitude': position.latitude,
         'longitude': position.longitude,
         'timestamp': FieldValue.serverTimestamp(),
         'lastUpdate': DateTime.now().toIso8601String(),
+        'accuracy': position.accuracy,
+        'altitude': position.altitude,
+        'speed': position.speed,
+        'status': 'active', // Indicates this was updated from foreground
       }, SetOptions(merge: true));
 
       setState(() {
         _lastLocationUpdate = DateTime.now();
       });
 
-      print('Location updated successfully at ${DateTime.now()}');
-      print('Latitude: ${position.latitude}, Longitude: ${position.longitude}');
+      print('✅ Location updated successfully at ${DateTime.now()}');
+      print(
+          '📍 Latitude: ${position.latitude}, Longitude: ${position.longitude}');
+      print(
+          '👤 Stored data - Name: $userName, Eid: $eid, Custom UID: $currentUserUid');
+      print('🔗 Document ID in live_locations: $currentUserUid');
+      print('🔐 Firebase Auth UID: ${firebaseUser?.uid}');
+      print('📊 Location data stored with status: active');
     } catch (e) {
       print('Error sending location: $e');
+    }
+  }
+
+  /// Ensure uid_mapping document exists for the current user
+  Future<void> _ensureUidMapping(String firebaseUid, String customUid) async {
+    try {
+      final mappingDoc = await FirebaseFirestore.instance
+          .collection('uid_mapping')
+          .doc(firebaseUid)
+          .get();
+
+      if (!mappingDoc.exists) {
+        print(
+            '🔗 Creating uid_mapping for Firebase UID: $firebaseUid -> Custom UID: $customUid');
+        await FirebaseFirestore.instance
+            .collection('uid_mapping')
+            .doc(firebaseUid)
+            .set({
+          'originalAuthUid': firebaseUid,
+          'customUid': customUid,
+          'createdAt': DateTime.now(),
+        });
+        print('✅ UID mapping created successfully');
+      } else {
+        print('✅ UID mapping already exists');
+      }
+    } catch (e) {
+      print('❌ Error ensuring UID mapping: $e');
     }
   }
 
@@ -122,6 +183,13 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       _selectedIndex = index;
     });
+
+    // Refresh HomeScreen data when it's selected
+    if (index == 0) {
+      Future.delayed(Duration(milliseconds: 100), () {
+        _homeScreenKey.currentState?.refreshData();
+      });
+    }
   }
 
   @override
@@ -192,7 +260,6 @@ class _HomePageState extends State<HomePage> {
           _bottomNavItem(Icons.home, "HOME"),
           _bottomNavItem(Icons.schedule, "Schedule"),
           _bottomNavItem(Icons.assignment, "Attendance"),
-          _bottomNavItem(Icons.account_balance, "Accounts"),
           _bottomNavItem(Icons.person, "Profile"),
         ],
         currentIndex: _selectedIndex,
@@ -218,8 +285,6 @@ class _HomePageState extends State<HomePage> {
       case 2:
         return "ATTENDANCE";
       case 3:
-        return "ACCOUNTS";
-      case 4:
         return "PROFILE";
       default:
         return "Welcome To SSM";
@@ -228,15 +293,28 @@ class _HomePageState extends State<HomePage> {
 }
 
 // Screens
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  _HomeScreenState createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final GlobalKey<_DashboardPageState> _dashboardKey =
+      GlobalKey<_DashboardPageState>();
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[200],
-      body: DashboardPage(),
+      body: DashboardPage(key: _dashboardKey),
     );
+  }
+
+  // Method to refresh the dashboard data
+  void refreshData() {
+    _dashboardKey.currentState?.fetchUserName();
   }
 }
 
@@ -262,32 +340,52 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Future<void> fetchUserName() async {
-    User? user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      return;
-    }
+    try {
+      // Use SessionManager to get the custom UID instead of Firebase UID
+      String? customUid = await SessionManager.getCurrentUserUid();
+      if (customUid == null) {
+        print('No custom UID found in session');
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
 
-    DocumentSnapshot doc = await FirebaseFirestore.instance
-        .collection("users")
-        .doc(user.uid)
-        .get();
+      print('Fetching user data for custom UID: $customUid');
 
-    if (doc.exists) {
-      setState(() {
-        userData = doc.data() as Map<String, dynamic>;
-        _profileImageUrl = userData!["profileImageUrl"];
-        _profilePicBinary = userData!["profilePicBinary"];
+      // Fetch user data using the custom UID (like SSM023)
+      DocumentSnapshot doc = await FirebaseFirestore.instance
+          .collection("users")
+          .doc(customUid)
+          .get();
 
-        if (_profilePicBinary != null && _profilePicBinary!.isNotEmpty) {
-          try {
-            _profileImageBytes = base64Decode(_profilePicBinary!);
-          } catch (e) {
-            print("Error decoding base64: $e");
+      if (doc.exists) {
+        Map<String, dynamic> fetchedUserData =
+            doc.data() as Map<String, dynamic>;
+        print('User data fetched successfully: ${fetchedUserData['name']}');
+
+        setState(() {
+          userData = fetchedUserData;
+          _profileImageUrl = userData!["profileImageUrl"];
+          _profilePicBinary = userData!["profilePicBinary"];
+
+          if (_profilePicBinary != null && _profilePicBinary!.isNotEmpty) {
+            try {
+              _profileImageBytes = base64Decode(_profilePicBinary!);
+            } catch (e) {
+              print("Error decoding base64: $e");
+            }
           }
-        }
-        _isLoading = false;
-      });
-    } else {
+          _isLoading = false;
+        });
+      } else {
+        print('User document not found for UID: $customUid');
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error fetching user data: $e');
       setState(() {
         _isLoading = false;
       });
@@ -346,21 +444,43 @@ class _DashboardPageState extends State<DashboardPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  userData != null ? userData!["name"] ?? "Unknown" : "Unknown",
+                  userData != null
+                      ? userData!["name"] ?? "Unknown User"
+                      : "Loading...",
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                   ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                SizedBox(height: 5),
-                Text(
-                  "Employee",
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.white70,
+                SizedBox(height: 4),
+                if (userData != null) ...[
+                  Text(
+                    "ID: ${userData!["uid"] ?? "N/A"}",
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-                ),
+                  SizedBox(height: 2),
+                  Text(
+                    userData!["qualification"] ?? "Employee",
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ] else ...[
+                  Text(
+                    "Employee",
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -438,12 +558,13 @@ class _DashboardPageState extends State<DashboardPage> {
             context,
             MaterialPageRoute(builder: (context) => SchedulePage()),
           );
-        } else if (label == "My Accounts") {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => AccountsScreen()),
-          );
         }
+        //else if (label == "My Accounts") {
+        //   Navigator.push(
+        //     context,
+        //     MaterialPageRoute(builder: (context) => AccountsScreen()),
+        //   );
+        // }
       },
       child: Container(
         decoration: BoxDecoration(
@@ -494,7 +615,6 @@ class _DashboardPageState extends State<DashboardPage> {
   final List<Map<String, dynamic>> _quickAccessItems = [
     {'icon': Icons.calendar_today, 'label': "My Schedule"},
     {'icon': Icons.assignment, 'label': "My Attendance"},
-    {'icon': Icons.account_balance, 'label': "My Accounts"},
   ];
 }
 
@@ -512,8 +632,10 @@ class _SchedulePageState extends State<SchedulePage> {
   late DateTime _selectedDate;
 
   List<ScheduleModel> _allSchedules = [];
+  List<ScheduleModel> _userSchedules = [];
   Map<String, UserModel> _usersMap = {};
   final ScheduleService _scheduleService = ScheduleService();
+  String? _currentUserUid;
 
   bool _isLoading = true;
   String? _errorMessage;
@@ -534,8 +656,9 @@ class _SchedulePageState extends State<SchedulePage> {
     });
 
     try {
-      final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) {
+      // Use SessionManager instead of FirebaseAuth
+      final currentUserUid = await SessionManager.getCurrentUserUid();
+      if (currentUserUid == null) {
         setState(() {
           _isLoading = false;
           _errorMessage = 'User not authenticated';
@@ -546,8 +669,16 @@ class _SchedulePageState extends State<SchedulePage> {
       final data = await _scheduleService.refreshScheduleData();
 
       setState(() {
+        _currentUserUid = currentUserUid;
         _allSchedules = data['schedules'] as List<ScheduleModel>;
         _usersMap = data['usersMap'] as Map<String, UserModel>;
+
+        // Filter schedules for current user
+        _userSchedules = _allSchedules.where((schedule) {
+          return schedule.assignedEmployees.contains(currentUserUid);
+        }).toList()
+          ..sort((a, b) => a.startDate.compareTo(b.startDate));
+
         _isLoading = false;
       });
     } catch (e) {
@@ -568,22 +699,20 @@ class _SchedulePageState extends State<SchedulePage> {
   }
 
   List<ScheduleModel> getSchedulesForSelectedDate() {
-    return _scheduleService.getSchedulesForDate(_allSchedules, _selectedDate);
+    // Use the already filtered _userSchedules
+    return _userSchedules.where((schedule) {
+      return schedule.isScheduledForDate(_selectedDate);
+    }).toList();
   }
 
   List<ScheduleModel> getAllUserSchedules() {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) return [];
-
-    // Return all schedules assigned to the current user, sorted by start date
-    return _allSchedules.where((schedule) {
-      return schedule.assignedEmployees.contains(currentUser.uid);
-    }).toList()
-      ..sort((a, b) => a.startDate.compareTo(b.startDate));
+    return _userSchedules;
   }
 
   bool _isScheduledDay(DateTime date) {
-    return _scheduleService.hasScheduleForDate(_allSchedules, date);
+    return _userSchedules.any((schedule) {
+      return schedule.isScheduledForDate(date);
+    });
   }
 
   void _goToPreviousMonth() {
@@ -629,15 +758,17 @@ class _SchedulePageState extends State<SchedulePage> {
       ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                _buildMonthNavigation(),
-                _buildWeekDays(),
-                _buildCalendar(),
-                Divider(height: 1),
-                _buildScheduleHeader(),
-                Expanded(child: _buildScheduleList()),
-              ],
+          : SingleChildScrollView(
+              child: Column(
+                children: [
+                  _buildMonthNavigation(),
+                  _buildWeekDays(),
+                  _buildCalendar(),
+                  Divider(height: 1),
+                  _buildScheduleHeader(),
+                  _buildScrollableScheduleList(),
+                ],
+              ),
             ),
     );
   }
@@ -812,157 +943,413 @@ class _SchedulePageState extends State<SchedulePage> {
     );
   }
 
-  Widget _buildScheduleList() {
+  Widget _buildScrollableScheduleList() {
     // Choose which schedules to show based on toggle
     final schedules = _showAllSchedules
         ? getAllUserSchedules()
         : getSchedulesForSelectedDate();
-    final currentUser = FirebaseAuth.instance.currentUser;
 
     if (_isLoading) {
-      return Center(child: CircularProgressIndicator());
+      return Container(
+        height: 200,
+        child: Center(child: CircularProgressIndicator()),
+      );
     }
 
     if (_errorMessage != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, size: 48, color: Colors.red),
-            SizedBox(height: 16),
-            Text(
-              'Error loading schedules',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            SizedBox(height: 8),
-            Text(
-              _errorMessage!,
-              style: TextStyle(fontSize: 14, color: Colors.grey),
-              textAlign: TextAlign.center,
-            ),
-            SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _loadScheduleData,
-              child: Text('Retry'),
-            ),
-          ],
+      return Container(
+        height: 300,
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline, size: 48, color: Colors.red),
+              SizedBox(height: 16),
+              Text(
+                'Error loading schedules',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              SizedBox(height: 8),
+              Text(
+                _errorMessage!,
+                style: TextStyle(fontSize: 14, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+              SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _loadScheduleData,
+                child: Text('Retry'),
+              ),
+            ],
+          ),
         ),
       );
     }
 
     if (schedules.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.calendar_today, size: 48, color: Colors.grey),
-            SizedBox(height: 16),
-            Text(
-              _showAllSchedules
-                  ? 'No work schedules found for your account'
-                  : 'No work scheduled for ${DateFormat.yMMMMd().format(_selectedDate)}',
-              style: TextStyle(fontSize: 16, color: Colors.grey),
-              textAlign: TextAlign.center,
-            ),
-            if (_showAllSchedules)
-              Padding(
-                padding: const EdgeInsets.only(top: 8.0),
-                child: Text(
-                  'Contact your administrator if you believe this is an error',
-                  style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
-                  textAlign: TextAlign.center,
-                ),
+      return Container(
+        height: 300,
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.calendar_today, size: 48, color: Colors.grey),
+              SizedBox(height: 16),
+              Text(
+                _showAllSchedules
+                    ? 'No work schedules found for your account'
+                    : 'No work scheduled for ${DateFormat.yMMMMd().format(_selectedDate)}',
+                style: TextStyle(fontSize: 16, color: Colors.grey),
+                textAlign: TextAlign.center,
               ),
-          ],
+              if (_showAllSchedules)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: Text(
+                    'Contact your administrator if you believe this is an error',
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+            ],
+          ),
         ),
       );
     }
 
-    return ListView.builder(
-      padding: EdgeInsets.all(8),
-      itemCount: schedules.length,
-      physics: BouncingScrollPhysics(),
-      itemBuilder: (context, index) {
+    return Column(
+      children: List.generate(schedules.length, (index) {
         final schedule = schedules[index];
         final assignedEmployeeNames =
             _scheduleService.getAssignedEmployeeNames(schedule, _usersMap);
         final isAssignedToCurrentUser =
-            schedule.assignedEmployees.contains(currentUser?.uid);
+            schedule.assignedEmployees.contains(_currentUserUid);
+
+        // Calculate remaining workers needed
+        final remainingWorkers =
+            schedule.numberOfWorkers - schedule.assignedEmployees.length;
 
         return Card(
-          margin: EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-          elevation: 2,
+          margin: EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+          elevation: 3,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(12),
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              schedule.branchName.isEmpty
-                                  ? 'Unknown Branch'
-                                  : schedule.branchName,
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.white,
+                  Colors.grey.shade50,
+                ],
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header Row with Branch Name and Status
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Icon(Icons.business, color: Colors.blue, size: 20),
+                            SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                schedule.branchName.isEmpty
+                                    ? 'Unknown Branch'
+                                    : schedule.branchName,
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black87,
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
-                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (isAssignedToCurrentUser)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 8.0),
+                                child: Container(
+                                  padding: EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.shade100,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                        color: Colors.green.shade300),
+                                  ),
+                                  child: Text(
+                                    'ASSIGNED',
+                                    style: TextStyle(
+                                      color: Colors.green.shade700,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding:
+                            EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: _getStatusColor(schedule.getDisplayStatus()),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Text(
+                          schedule.getDisplayStatus(),
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  SizedBox(height: 16),
+
+                  // Work Period
+                  Container(
+                    padding: EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.blue.shade200),
+                    ),
+                    child: Column(
+                      children: [
+                        _buildDetailRow(
+                          Icons.calendar_today,
+                          'Work Period',
+                          '${_formatScheduleDate(schedule.startDate)} - ${_formatScheduleDate(schedule.endDate)}',
+                          Colors.blue.shade700,
+                        ),
+                        SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildDetailRow(
+                                Icons.access_time,
+                                'Start Time',
+                                schedule.startTime.isEmpty
+                                    ? 'Not set'
+                                    : schedule.startTime,
+                                Colors.green.shade700,
+                              ),
+                            ),
+                            SizedBox(width: 16),
+                            Expanded(
+                              child: _buildDetailRow(
+                                Icons.access_time_filled,
+                                'End Time',
+                                schedule.endTime.isEmpty
+                                    ? 'Not set'
+                                    : schedule.endTime,
+                                Colors.orange.shade700,
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: 8),
+                        _buildDetailRow(
+                          Icons.hourglass_top,
+                          'Total Hours',
+                          '${schedule.totalHours} hours',
+                          Colors.purple.shade700,
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  SizedBox(height: 12),
+
+                  // Worker Information
+                  Container(
+                    padding: EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.orange.shade200),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildDetailRow(
+                                Icons.people,
+                                'Workers Needed',
+                                '${schedule.numberOfWorkers}',
+                                Colors.orange.shade700,
+                              ),
+                            ),
+                            SizedBox(width: 16),
+                            Expanded(
+                              child: _buildDetailRow(
+                                Icons.people_outline,
+                                'Assigned',
+                                '${schedule.assignedEmployees.length}',
+                                Colors.green.shade700,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (remainingWorkers > 0) ...[
+                          SizedBox(height: 8),
+                          Container(
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade100,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: Colors.red.shade300),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.warning,
+                                    color: Colors.red.shade700, size: 18),
+                                SizedBox(width: 8),
+                                Text(
+                                  '$remainingWorkers more worker${remainingWorkers > 1 ? 's' : ''} needed',
+                                  style: TextStyle(
+                                    color: Colors.red.shade700,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          if (isAssignedToCurrentUser)
-                            Padding(
-                              padding: const EdgeInsets.only(left: 8.0),
-                              child: Icon(Icons.notifications_active,
-                                  color: Colors.red, size: 20),
+                        ] else if (remainingWorkers == 0) ...[
+                          SizedBox(height: 8),
+                          Container(
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.green.shade100,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: Colors.green.shade300),
                             ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.check_circle,
+                                    color: Colors.green.shade700, size: 18),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Fully staffed',
+                                  style: TextStyle(
+                                    color: Colors.green.shade700,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+
+                  SizedBox(height: 12),
+
+                  // Assigned Workers List
+                  if (assignedEmployeeNames.isNotEmpty) ...[
+                    Container(
+                      padding: EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.groups,
+                                  color: Colors.grey.shade700, size: 18),
+                              SizedBox(width: 8),
+                              Text(
+                                'Assigned Workers:',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.grey.shade700,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            children: assignedEmployeeNames.map((name) {
+                              bool isCurrentUser = schedule.assignedEmployees[
+                                      assignedEmployeeNames.indexOf(name)] ==
+                                  _currentUserUid;
+                              return Container(
+                                padding: EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: isCurrentUser
+                                      ? Colors.blue.shade100
+                                      : Colors.white,
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: isCurrentUser
+                                        ? Colors.blue.shade300
+                                        : Colors.grey.shade400,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (isCurrentUser) ...[
+                                      Icon(Icons.person,
+                                          size: 16,
+                                          color: Colors.blue.shade700),
+                                      SizedBox(width: 4),
+                                    ],
+                                    Text(
+                                      isCurrentUser ? 'You' : name,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: isCurrentUser
+                                            ? Colors.blue.shade700
+                                            : Colors.grey.shade700,
+                                        fontWeight: isCurrentUser
+                                            ? FontWeight.bold
+                                            : FontWeight.normal,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                          ),
                         ],
                       ),
                     ),
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: _getStatusColor(schedule.getDisplayStatus()),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        schedule.getDisplayStatus(),
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
                   ],
-                ),
-                SizedBox(height: 8),
-                _buildScheduleDetailRow(Icons.calendar_today,
-                    'Period: ${_formatScheduleDate(schedule.startDate)} - ${_formatScheduleDate(schedule.endDate)}'),
-                _buildScheduleDetailRow(Icons.access_time,
-                    'Time: ${schedule.startTime.isEmpty ? '-' : schedule.startTime} to ${schedule.endTime.isEmpty ? '-' : schedule.endTime}'),
-                _buildScheduleDetailRow(
-                    Icons.hourglass_top, 'Total Hours: ${schedule.totalHours}'),
-                _buildScheduleDetailRow(Icons.people,
-                    'Workers Needed: ${schedule.numberOfWorkers}'),
-                _buildScheduleDetailRow(Icons.people,
-                    'Workers Assigned: ${schedule.assignedEmployees.length}'),
-                _buildScheduleDetailRow(Icons.person,
-                    'Assigned Employees: ${assignedEmployeeNames.join(', ')}'),
-                if (schedule.isExpired())
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8.0),
-                    child: Container(
-                      padding:
-                          EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+
+                  // Expired Warning
+                  if (schedule.isExpired()) ...[
+                    SizedBox(height: 12),
+                    Container(
+                      padding: EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         color: Colors.red.shade50,
                         borderRadius: BorderRadius.circular(8),
@@ -972,7 +1359,7 @@ class _SchedulePageState extends State<SchedulePage> {
                         children: [
                           Icon(Icons.warning,
                               color: Colors.red.shade700, size: 20),
-                          SizedBox(width: 8),
+                          SizedBox(width: 12),
                           Expanded(
                             child: Text(
                               'This work has expired. The end date has passed and status is "not done".',
@@ -986,32 +1373,47 @@ class _SchedulePageState extends State<SchedulePage> {
                         ],
                       ),
                     ),
-                  ),
-              ],
+                  ],
+                ],
+              ),
             ),
           ),
         );
-      },
+      }),
     );
   }
 
-  Widget _buildScheduleDetailRow(IconData icon, String text) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 16, color: Colors.grey),
-          SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(fontSize: 14),
-              softWrap: true,
-            ),
+  Widget _buildDetailRow(
+      IconData icon, String label, String value, Color color) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: color),
+        SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade600,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: color,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -1052,11 +1454,131 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   DateTime? checkInTime;
   DateTime? checkOutTime;
   bool isLoading = false;
+  String? attendanceStatus;
+
+  /// Calculate attendance status based on work hours
+  String _calculateAttendanceStatus(Duration workDuration) {
+    // Convert duration to total hours (including decimal for minutes)
+    double totalHours = workDuration.inMinutes / 60.0;
+
+    print(
+        '📊 Calculating attendance status for ${totalHours.toStringAsFixed(2)} hours');
+
+    if (totalHours < 2.0) {
+      // Less than 2 hours = Absent
+      return 'absent';
+    } else if (totalHours >= 2.0 && totalHours < 8.5) {
+      // 2 hours to less than 8.5 hours = Half day present
+      return 'halfday present';
+    } else if (totalHours >= 8.5 && totalHours <= 8.6) {
+      // 8.5 to 8.6 hours = Full day present (allowing small margin)
+      return 'present';
+    } else {
+      // More than 8.5 hours = Present + extra hours
+      double extraHours = totalHours - 8.5;
+      int extraHoursInt = extraHours.floor();
+      int extraMinutes = ((extraHours - extraHoursInt) * 60).round();
+
+      if (extraMinutes > 0) {
+        return 'present + ${extraHoursInt}hrs ${extraMinutes}min extra work';
+      } else {
+        return 'present + ${extraHoursInt}hrs extra work';
+      }
+    }
+  }
+
+  /// Ensure uid_mapping document exists for the current user
+  Future<void> _ensureUidMapping(String firebaseUid, String customUid) async {
+    try {
+      final mappingDoc = await FirebaseFirestore.instance
+          .collection('uid_mapping')
+          .doc(firebaseUid)
+          .get();
+
+      if (!mappingDoc.exists) {
+        print(
+            '🔗 Creating uid_mapping for Firebase UID: $firebaseUid -> Custom UID: $customUid');
+        await FirebaseFirestore.instance
+            .collection('uid_mapping')
+            .doc(firebaseUid)
+            .set({
+          'originalAuthUid': firebaseUid,
+          'customUid': customUid,
+          'createdAt': DateTime.now(),
+        });
+        print('✅ UID mapping created successfully');
+      } else {
+        print('✅ UID mapping already exists');
+      }
+    } catch (e) {
+      print('❌ Error ensuring UID mapping: $e');
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     _loadTimerState(); // Load the previous timer state if exists
+    _initializeFirebaseAuthForAttendance(); // Initialize Firebase Auth for attendance
+  }
+
+  /// Initialize Firebase Auth specifically for attendance functionality
+  Future<void> _initializeFirebaseAuthForAttendance() async {
+    try {
+      // Check if user is already signed in to Firebase
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        print(
+            '✅ Firebase user already authenticated for attendance: ${user.uid}');
+        return;
+      }
+
+      // Get current user from SessionManager
+      final currentUserUid = await SessionManager.getCurrentUserUid();
+      final currentUserData = await SessionManager.getCurrentUserData();
+
+      if (currentUserUid == null || currentUserData == null) {
+        print('❌ No user in SessionManager for attendance Firebase Auth');
+        return;
+      }
+
+      print('🔐 Initializing Firebase Auth for attendance: $currentUserUid');
+
+      // Use the actual user email from SessionManager data instead of creating a fake one
+      final userEmail = currentUserData['email'];
+      if (userEmail == null || userEmail.isEmpty) {
+        print('❌ No email found in user data, cannot initialize Firebase Auth');
+        return;
+      }
+
+      // Try to sign in with the actual user email
+      try {
+        print(
+            '🔑 Attempting Firebase signIn for attendance with email: $userEmail');
+
+        // Try to sign in with the actual email
+        final credential =
+            await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: userEmail,
+          password: currentUserData['password'] ??
+              currentUserUid, // Use stored password or UID as fallback
+        );
+        print(
+            '✅ Firebase signIn successful for attendance: ${credential.user?.uid}');
+
+        // Ensure uid_mapping document exists
+        if (credential.user != null) {
+          await _ensureUidMapping(credential.user!.uid, currentUserUid);
+        }
+      } catch (signInError) {
+        print('❌ SignIn failed for attendance: $signInError');
+        print(
+            '❌ Cannot create new Firebase Auth user - user should already exist from login');
+        // Don't create new users here - they should already exist from the login process
+      }
+    } catch (e) {
+      print('❌ Error initializing Firebase Auth for attendance: $e');
+    }
   }
 
   /// Load previous timer state
@@ -1067,15 +1589,15 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       String? savedStartTime = prefs.getString('startTime');
       String? savedCheckInTime = prefs.getString('checkInTime');
 
-      // First check if user is logged in
-      final User? user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
+      // First check if user is logged in using session manager
+      bool isLoggedIn = await SessionManager.isUserLoggedIn();
+      if (!isLoggedIn) {
         print("User is not logged in during _loadTimerState");
         setState(() {
           isLoading = false;
         });
 
-        // Wait a moment and try again - sometimes Firebase Auth takes a moment to initialize
+        // Wait a moment and try again - sometimes authentication takes a moment to initialize
         await Future.delayed(Duration(seconds: 2));
         if (FirebaseAuth.instance.currentUser == null) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1104,18 +1626,59 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
         // Check if there's a checkout time for today
         final FirebaseFirestore firestore = FirebaseFirestore.instance;
-        final User? currentUser = FirebaseAuth.instance.currentUser;
 
-        if (currentUser != null) {
+        // Get current user from session manager
+        Map<String, dynamic>? currentUserData =
+            await SessionManager.getCurrentUserData();
+
+        if (currentUserData != null) {
+          // Get current user UID from SessionManager for attendance document ID
+          String? currentUserUid = await SessionManager.getCurrentUserUid();
+          if (currentUserUid == null) {
+            print("No user UID found while loading timer state");
+            return;
+          }
+
+          // Debug: Check Firebase Auth status
+          final firebaseUser = FirebaseAuth.instance.currentUser;
+          print("🔍 Debug - Firebase User: ${firebaseUser?.uid}");
+          print("🔍 Debug - Custom User UID: $currentUserUid");
+          print("🔍 Debug - User authenticated: ${firebaseUser != null}");
+
           final String currentDate =
               DateFormat('yyyy-MM-dd').format(DateTime.now());
+          print(
+              "🔍 Debug - Attempting to access: attendance/$currentUserUid/dates/$currentDate");
+
           final docRef = firestore
               .collection('attendance')
-              .doc(currentUser.uid)
+              .doc(currentUserUid)
               .collection('dates')
               .doc(currentDate);
 
-          DocumentSnapshot doc = await docRef.get();
+          DocumentSnapshot doc;
+          try {
+            doc = await docRef.get();
+          } catch (e) {
+            print("❌ Error accessing attendance document: $e");
+            // If permission denied, try to create the uid_mapping document
+            if (e.toString().contains('permission-denied')) {
+              print(
+                  "🔧 Attempting to fix permission issue by creating uid_mapping...");
+              await _ensureUidMapping(firebaseUser!.uid, currentUserUid);
+              // Retry the operation
+              try {
+                doc = await docRef.get();
+                print("✅ Retry successful after creating uid_mapping");
+              } catch (retryError) {
+                print("❌ Retry failed: $retryError");
+                return;
+              }
+            } else {
+              print("❌ Non-permission error: $e");
+              return;
+            }
+          }
 
           if (doc.exists) {
             Map<String, dynamic>? data = doc.data() as Map<String, dynamic>?;
@@ -1138,6 +1701,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 // Calculate elapsed time from stored check-in and check-out times
                 if (checkInTime != null && checkOutTime != null) {
                   elapsedTime = checkOutTime!.difference(checkInTime!);
+                }
+
+                // Load attendance status if available
+                if (data.containsKey('attendance_status') &&
+                    data['attendance_status'] != null) {
+                  attendanceStatus = data['attendance_status'] as String;
                 }
               } else if (data.containsKey('checkInTime') &&
                   data['checkInTime'] != null &&
@@ -1157,14 +1726,16 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       } else {
         // Check if there's a record for today even if we didn't have saved timer state
         final FirebaseFirestore firestore = FirebaseFirestore.instance;
-        final User? currentUser = FirebaseAuth.instance.currentUser;
 
-        if (currentUser != null) {
+        // Get current user UID from SessionManager
+        String? currentUserUid = await SessionManager.getCurrentUserUid();
+
+        if (currentUserUid != null) {
           final String currentDate =
               DateFormat('yyyy-MM-dd').format(DateTime.now());
           final docRef = firestore
               .collection('attendance')
-              .doc(currentUser.uid)
+              .doc(currentUserUid)
               .collection('dates')
               .doc(currentDate);
 
@@ -1191,6 +1762,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 // Calculate elapsed time from stored check-in and check-out times
                 if (checkInTime != null && checkOutTime != null) {
                   elapsedTime = checkOutTime!.difference(checkInTime!);
+                }
+
+                // Load attendance status if available
+                if (data.containsKey('attendance_status') &&
+                    data['attendance_status'] != null) {
+                  attendanceStatus = data['attendance_status'] as String;
                 }
               } else if (data.containsKey('checkInTime') &&
                   data['checkInTime'] != null) {
@@ -1254,9 +1831,19 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
       if (isAuthenticated) {
         final FirebaseFirestore firestore = FirebaseFirestore.instance;
-        final User? user = FirebaseAuth.instance.currentUser;
 
-        if (user == null) {
+        // Get current user from session manager
+        String? currentUserUid = await SessionManager.getCurrentUserUid();
+        Map<String, dynamic>? currentUserData =
+            await SessionManager.getCurrentUserData();
+
+        // Debug: Check Firebase Auth status
+        final firebaseUser = FirebaseAuth.instance.currentUser;
+        print("🔍 Debug - Firebase User: ${firebaseUser?.uid}");
+        print("🔍 Debug - Custom User UID: $currentUserUid");
+        print("🔍 Debug - User authenticated: ${firebaseUser != null}");
+
+        if (currentUserUid == null || currentUserData == null) {
           print("User is not logged in");
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -1270,22 +1857,14 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           return;
         }
 
-        final String userUid = user.uid;
         final DateTime now = DateTime.now();
         final String currentDate = DateFormat('yyyy-MM-dd').format(now);
 
-        // Fetch the user's name from the users collection
-        DocumentSnapshot userDoc =
-            await firestore.collection('users').doc(userUid).get();
-        Map<String, dynamic>? userData =
-            userDoc.data() as Map<String, dynamic>?;
-        String? userName = userData?['name'];
+        // Use the current user data from session
+        String userName = currentUserData['name'] ?? 'Unknown';
 
-        if (userName == null) {
-          print("User name not found in Firestore");
-          // Use email if name is not available
-          userName = user.email ?? "Unknown User";
-        }
+        print(
+            "🔍 Debug - Attempting to write to: attendance/$currentUserUid/dates/$currentDate");
 
         if (!isTiming) {
           // Clocking In
@@ -1295,17 +1874,70 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           _startTimer();
 
           // Save to Firestore - check-in only
-          await firestore
-              .collection('attendance')
-              .doc(userUid)
-              .collection('dates')
-              .doc(currentDate)
-              .set({
-            'name': userName,
-            'checkInTime': checkInTime?.toIso8601String(),
-            'currentDate': currentDate,
-            'status': 'checked-in',
-          }, SetOptions(merge: true));
+          print("🔍 Debug - Writing check-in data...");
+          try {
+            await firestore
+                .collection('attendance')
+                .doc(currentUserUid)
+                .collection('dates')
+                .doc(currentDate)
+                .set({
+              'name': userName,
+              'employeeId': currentUserUid, // Store the custom employee ID
+              'Eid': currentUserData[
+                  'Eid'], // Store the Eid field from users collection
+              'checkInTime': checkInTime?.toIso8601String(),
+              'currentDate': currentDate,
+              'status': 'checked-in',
+            }, SetOptions(merge: true));
+          } catch (e) {
+            print("❌ Error writing check-in data: $e");
+            if (e.toString().contains('permission-denied')) {
+              print(
+                  "🔧 Attempting to fix permission issue by creating uid_mapping...");
+              await _ensureUidMapping(firebaseUser!.uid, currentUserUid);
+              // Retry the operation
+              try {
+                await firestore
+                    .collection('attendance')
+                    .doc(currentUserUid)
+                    .collection('dates')
+                    .doc(currentDate)
+                    .set({
+                  'name': userName,
+                  'employeeId': currentUserUid,
+                  'checkInTime': checkInTime?.toIso8601String(),
+                  'currentDate': currentDate,
+                  'status': 'checked-in',
+                  'Eid': currentUserData['Eid'],
+                }, SetOptions(merge: true));
+                print("✅ Retry successful after creating uid_mapping");
+              } catch (retryError) {
+                print("❌ Retry failed: $retryError");
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text("❌ Check-in failed: $retryError"),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+                setState(() {
+                  isLoading = false;
+                });
+                return;
+              }
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text("❌ Check-in failed: $e"),
+                  backgroundColor: Colors.red,
+                ),
+              );
+              setState(() {
+                isLoading = false;
+              });
+              return;
+            }
+          }
 
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -1328,19 +1960,31 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           String minutesStr = minutes.toString().padLeft(2, '0');
           String secondsStr = seconds.toString().padLeft(2, '0');
 
+          // Calculate attendance status based on work duration
+          attendanceStatus = _calculateAttendanceStatus(elapsedTime);
+
+          print(
+              '📊 Work Duration: ${elapsedTime.inHours}h ${elapsedTime.inMinutes % 60}m');
+          print('📊 Attendance Status: $attendanceStatus');
+
           // Save complete data to Firestore
           await firestore
               .collection('attendance')
-              .doc(userUid)
+              .doc(currentUserUid)
               .collection('dates')
               .doc(currentDate)
               .set({
             'name': userName,
+            'employeeId': currentUserUid, // Store the custom employee ID
+            'Eid': currentUserData[
+                'Eid'], // Store the Eid field from users collection
             'checkInTime': checkInTime?.toIso8601String(),
             'checkOutTime': checkOutTime?.toIso8601String(),
             'formattedTime': "$hoursStr'hrs':$minutesStr'min':$secondsStr'sec'",
             'currentDate': currentDate,
             'status': 'checked-out',
+            'attendance_status':
+                attendanceStatus, // Store calculated attendance status
           }, SetOptions(merge: true));
 
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1545,239 +2189,650 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                     ),
                   ),
                 ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class AccountsScreen extends StatefulWidget {
-  const AccountsScreen({super.key});
-
-  @override
-  _AccountsScreenState createState() => _AccountsScreenState();
-}
-
-class _AccountsScreenState extends State<AccountsScreen> {
-  bool showPreviousYear = false;
-
-  Map<String, Map<String, dynamic>> currentYearPayments = {};
-  Map<String, Map<String, dynamic>> previousYearPayments = {};
-
-  bool isLoading = true; // <-- Add loading flag
-
-  @override
-  void initState() {
-    super.initState();
-    _fetchSalaries();
-  }
-
-  Future<void> _fetchSalaries() async {
-    try {
-      final currentUser = FirebaseAuth.instance.currentUser!;
-      final currentYear = DateTime.now().year.toString();
-      final previousYear = (DateTime.now().year - 1).toString();
-
-      await _fetchYearSalary(currentYear, currentYearPayments, currentUser.uid);
-      await _fetchYearSalary(
-          previousYear, previousYearPayments, currentUser.uid);
-    } catch (e) {
-      print('Error fetching salaries: $e');
-    } finally {
-      setState(() {
-        isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _fetchYearSalary(
-    String year,
-    Map<String, Map<String, dynamic>> paymentsMap,
-    String uid,
-  ) async {
-    final yearDocRef =
-        FirebaseFirestore.instance.collection('salary_records').doc(year);
-    final months = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December'
-    ];
-
-    for (var month in months) {
-      try {
-        final monthCollection = yearDocRef.collection(month);
-        final querySnapshot =
-            await monthCollection.where('empId', isEqualTo: uid).get();
-
-        if (querySnapshot.docs.isNotEmpty) {
-          final docData = querySnapshot.docs.first.data();
-          paymentsMap[month] = {
-            'month': docData['month'] ?? month,
-            'amount': int.tryParse(docData['salary'].toString()) ?? 0,
-            'status':
-                (docData['status'] ?? '').toString().toLowerCase() == 'paid',
-          };
-        } else {
-          // No document found — optionally handle
-          paymentsMap[month] = {
-            'month': month,
-            'amount': 0,
-            'status': false,
-          };
-        }
-      } catch (e) {
-        print('Error fetching month $month for $year: $e');
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: isLoading
-          ? Center(child: CircularProgressIndicator())
-          : Container(
-              padding: EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "Payments",
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
+              // Display Attendance Status
+              if (attendanceStatus != null)
+                Card(
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  SizedBox(height: 16),
-                  Expanded(
-                    child: ListView(
+                  margin: EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+                  color: _getAttendanceStatusColor(attendanceStatus!),
+                  child: Padding(
+                    padding: EdgeInsets.all(15),
+                    child: Row(
                       children: [
-                        _buildYearSection(
-                            "Current Year (${DateTime.now().year})",
-                            currentYearPayments.values.toList()),
-                        SizedBox(height: 16),
-                        if (showPreviousYear)
-                          _buildYearSection(
-                              "Previous Year (${DateTime.now().year - 1})",
-                              previousYearPayments.values.toList()),
+                        Icon(_getAttendanceStatusIcon(attendanceStatus!),
+                            color: Colors.white, size: 24),
+                        SizedBox(width: 15),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "Attendance Status",
+                                style: GoogleFonts.poppins(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              Text(
+                                attendanceStatus!.toUpperCase(),
+                                style: GoogleFonts.poppins(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              Text(
+                                _getAttendanceStatusDescription(
+                                    attendanceStatus!),
+                                style: GoogleFonts.poppins(
+                                  fontSize: 12,
+                                  color: Colors.white70,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   ),
-                  SizedBox(height: 16),
-                  Center(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        setState(() {
-                          showPreviousYear = !showPreviousYear;
-                        });
-                      },
-                      child: Text(showPreviousYear
-                          ? "Hide Previous Year"
-                          : "Show Previous Year"),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-    );
-  }
-
-  Widget _buildYearSection(String title, List<Map<String, dynamic>> payments) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: Colors.blueAccent,
-          ),
-        ),
-        SizedBox(height: 8),
-        ListView.builder(
-          shrinkWrap: true,
-          physics: NeverScrollableScrollPhysics(),
-          itemCount: payments.length,
-          itemBuilder: (context, index) {
-            final payment = payments[index];
-            return _buildPaymentCard(
-              month: payment['month'] ?? '',
-              amount: payment['amount'] ?? 0,
-              isPaid: payment['status'] ?? false,
-            );
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPaymentCard({
-    required String month,
-    required int amount,
-    required bool isPaid,
-  }) {
-    return Container(
-      margin: EdgeInsets.only(bottom: 12),
-      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.grey[200],
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            month,
-            style: TextStyle(
-              fontSize: 18,
-              fontStyle: FontStyle.italic,
-              fontWeight: FontWeight.w500,
-              color: Colors.black87,
-            ),
-          ),
-          Row(
-            children: [
-              Text(
-                "₹$amount",
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.green,
                 ),
-              ),
-              SizedBox(width: 16),
-              Text(
-                isPaid ? "Paid" : "Not Paid",
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  color: isPaid ? Colors.green : Colors.red,
-                ),
-              ),
             ],
           ),
-        ],
+        ),
       ),
     );
+  }
+
+  /// Get color for attendance status
+  Color _getAttendanceStatusColor(String status) {
+    if (status.contains('absent')) {
+      return Colors.red[600]!;
+    } else if (status.contains('halfday')) {
+      return Colors.orange[600]!;
+    } else if (status.contains('extra work')) {
+      return Colors.purple[600]!;
+    } else if (status.contains('present')) {
+      return Colors.green[600]!;
+    } else {
+      return Colors.grey[600]!;
+    }
+  }
+
+  /// Get icon for attendance status
+  IconData _getAttendanceStatusIcon(String status) {
+    if (status.contains('absent')) {
+      return Icons.cancel;
+    } else if (status.contains('halfday')) {
+      return Icons.schedule;
+    } else if (status.contains('extra work')) {
+      return Icons.star;
+    } else if (status.contains('present')) {
+      return Icons.check_circle;
+    } else {
+      return Icons.help;
+    }
+  }
+
+  /// Get description for attendance status
+  String _getAttendanceStatusDescription(String status) {
+    if (status.contains('absent')) {
+      return 'Less than 2 hours worked';
+    } else if (status.contains('halfday')) {
+      return '2-8.5 hours worked';
+    } else if (status.contains('extra work')) {
+      return 'More than 8.5 hours worked';
+    } else if (status.contains('present')) {
+      return '8.5 hours worked (Full day)';
+    } else {
+      return 'Status calculated after check-out';
+    }
   }
 }
 
-class ProfilePage extends StatefulWidget {
-  const ProfilePage({super.key});
+// class AccountsScreen extends StatefulWidget {
+//   const AccountsScreen({super.key});
 
+//   @override
+//   _AccountsScreenState createState() => _AccountsScreenState();
+// }
+
+// class _AccountsScreenState extends State<AccountsScreen> {
+//   int selectedYear = DateTime.now().year;
+//   Map<String, Map<String, dynamic>> yearlyPayments = {};
+//   bool isLoading = true;
+//   List<int> availableYears = [];
+
+//   @override
+//   void initState() {
+//     super.initState();
+//     _initializeFirebaseAuth();
+//   }
+
+//   /// Initialize Firebase Auth to satisfy Firestore security rules
+//   Future<void> _initializeFirebaseAuth() async {
+//     try {
+//       // Check if user is already signed in to Firebase
+//       final user = FirebaseAuth.instance.currentUser;
+//       if (user != null) {
+//         print('✅ Firebase user already authenticated: ${user.uid}');
+//         _initializeYears();
+//         return;
+//       }
+
+//       // Get current user from SessionManager
+//       final currentUserUid = await SessionManager.getCurrentUserUid();
+//       final currentUserData = await SessionManager.getCurrentUserData();
+
+//       if (currentUserUid == null || currentUserData == null) {
+//         print('❌ No user in SessionManager');
+//         return;
+//       }
+
+//       print(
+//           '🔐 Attempting Firebase Auth for SessionManager UID: $currentUserUid');
+
+//       // Use the actual user email from SessionManager data instead of creating a fake one
+//       final userEmail = currentUserData['email'];
+//       if (userEmail == null || userEmail.isEmpty) {
+//         print('❌ No email found in user data, cannot initialize Firebase Auth');
+//         _initializeYears(); // Proceed without Firebase Auth
+//         return;
+//       }
+
+//       // Try to sign in with the actual user email
+//       try {
+//         print('🔑 Attempting Firebase signIn with actual email: $userEmail');
+
+//         // Try to sign in with the actual email
+//         final credential =
+//             await FirebaseAuth.instance.signInWithEmailAndPassword(
+//           email: userEmail,
+//           password: currentUserData['password'] ??
+//               currentUserUid, // Use stored password or UID as fallback
+//         );
+//         print('✅ Firebase signIn successful: ${credential.user?.uid}');
+//         _initializeYears();
+//       } catch (signInError) {
+//         print('❌ SignIn failed: $signInError');
+//         print(
+//             '❌ Cannot create new Firebase Auth user - user should already exist from login');
+//         // Don't create new users here - they should already exist from the login process
+//         _initializeYears(); // Proceed without Firebase Auth
+//       }
+//     } catch (e) {
+//       print('❌ Firebase Auth initialization error: $e');
+//       _initializeYears();
+//     }
+//   }
+
+//   Future<void> _initializeYears() async {
+//     try {
+//       print(
+//           '🔍 Initializing available years from salary_records collection...');
+
+//       // Check Firebase Auth status
+//       final firebaseUser = FirebaseAuth.instance.currentUser;
+//       if (firebaseUser != null) {
+//         print('✅ Firebase Auth user: ${firebaseUser.uid}');
+//       } else {
+//         print('⚠️ No Firebase Auth user - may encounter permission issues');
+//       }
+
+//       // Use a simpler approach - test known years directly
+//       final currentYear = DateTime.now().year;
+//       final testYears = [
+//         2025, // From your Firebase screenshot
+//         currentYear,
+//         currentYear - 1,
+//         currentYear - 2,
+//         currentYear - 3
+//       ];
+
+//       Set<int> validYears = {};
+
+//       for (var year in testYears) {
+//         try {
+//           print('🔍 Testing year: $year');
+//           // Test if the year document exists by trying to access a known month
+//           final testDoc = await FirebaseFirestore.instance
+//               .collection('salary_records')
+//               .doc(year.toString())
+//               .collection('April') // Test with April since you have data there
+//               .limit(1)
+//               .get();
+
+//           if (testDoc.docs.isNotEmpty) {
+//             validYears.add(year);
+//             print('✅ Found data for year: $year');
+//           } else {
+//             print('❌ No data found for year: $year');
+//           }
+//         } catch (e) {
+//           print('❌ Error checking year $year: $e');
+//         }
+//       }
+
+//       if (validYears.isNotEmpty) {
+//         availableYears = validYears.toList()
+//           ..sort((a, b) => b.compareTo(a)); // Sort descending
+//         selectedYear = availableYears.first; // Select most recent year
+//         print('✅ Available years: $availableYears, selected: $selectedYear');
+//       } else {
+//         // Fallback to current year if no records found
+//         availableYears = [currentYear];
+//         selectedYear = currentYear;
+//         print('❌ No valid years found, using current year: $currentYear');
+//       }
+
+//       setState(() {});
+
+//       // Fetch salaries after years are initialized
+//       _fetchSalaries();
+//     } catch (e) {
+//       print('❌ Error fetching available years: $e');
+//       // Since we have permission issues, use years we know exist (from Firebase screenshot)
+//       availableYears = [2025, 2024, 2023, 2022, 2021];
+//       selectedYear = 2025; // Use 2025 since we saw data there
+//       print('🔄 Using known years from database: $availableYears');
+//       setState(() {});
+//       _fetchSalaries();
+//     }
+//   }
+
+//   Future<void> _fetchSalaries() async {
+//     setState(() {
+//       isLoading = true;
+//     });
+
+//     try {
+//       // Check Firebase Auth status first
+//       final firebaseUser = FirebaseAuth.instance.currentUser;
+//       if (firebaseUser != null) {
+//         print('✅ Firebase Auth user for salary fetch: ${firebaseUser.uid}');
+//       } else {
+//         print('⚠️ No Firebase Auth user - will encounter permission issues');
+//       }
+
+//       // Use SessionManager for user identification
+//       final currentUserUid = await SessionManager.getCurrentUserUid();
+//       if (currentUserUid == null) {
+//         print('❌ Error: User not authenticated in SessionManager');
+//         setState(() {
+//           isLoading = false;
+//         });
+//         return;
+//       }
+
+//       print(
+//           '🔍 Fetching salaries for user: $currentUserUid, year: $selectedYear');
+
+//       await _fetchYearSalary(
+//           selectedYear.toString(), yearlyPayments, currentUserUid);
+
+//       print('✅ Salary fetch completed. Data: $yearlyPayments');
+//     } catch (e) {
+//       print('❌ Error fetching salaries: $e');
+//     } finally {
+//       setState(() {
+//         isLoading = false;
+//       });
+//     }
+//   }
+
+//   Future<void> _fetchYearSalary(
+//     String year,
+//     Map<String, Map<String, dynamic>> paymentsMap,
+//     String uid,
+//   ) async {
+//     paymentsMap.clear();
+
+//     // Try direct document access for known months first
+//     final months = [
+//       'January',
+//       'February',
+//       'March',
+//       'April',
+//       'May',
+//       'June',
+//       'July',
+//       'August',
+//       'September',
+//       'October',
+//       'November',
+//       'December'
+//     ];
+
+//     print('Fetching salary data for $year with empId: $uid');
+
+//     for (var month in months) {
+//       try {
+//         // Try to access the specific document path more directly
+//         final monthCollectionRef = FirebaseFirestore.instance
+//             .collection('salary_records')
+//             .doc(year)
+//             .collection(month);
+
+//         print('Querying: salary_records/$year/$month where empId == $uid');
+
+//         // Use get() instead of where() query to avoid permission issues
+//         final allDocsSnapshot = await monthCollectionRef.get();
+
+//         print('Found ${allDocsSnapshot.docs.length} documents in $month $year');
+
+//         bool foundUserData = false;
+
+//         for (var doc in allDocsSnapshot.docs) {
+//           final data = doc.data();
+//           final docEmpId = data['empId']?.toString();
+
+//           print('Document ${doc.id} in $month: empId=$docEmpId');
+
+//           if (docEmpId == uid) {
+//             // Parse salary as string from Firebase (as shown in screenshot)
+//             final salaryString = data['salary']?.toString() ?? '0';
+//             final salaryAmount = int.tryParse(salaryString) ?? 0;
+
+//             // Parse status (as shown in screenshot)
+//             final statusString =
+//                 data['status']?.toString().toLowerCase() ?? 'unpaid';
+//             final isPaid = statusString == 'paid';
+
+//             paymentsMap[month] = {
+//               'month': month,
+//               'amount': salaryAmount,
+//               'status': isPaid,
+//             };
+
+//             foundUserData = true;
+//             print(
+//                 '✅ Found data for $month $year: salary=$salaryAmount, status=$statusString, paid=$isPaid');
+//             break;
+//           }
+//         }
+
+//         if (!foundUserData) {
+//           paymentsMap[month] = {
+//             'month': month,
+//             'amount': 0,
+//             'status': false,
+//           };
+//           print('❌ No matching empId found for $month $year (empId: $uid)');
+//         }
+//       } catch (e) {
+//         print('❌ Error fetching month $month for $year: $e');
+//         paymentsMap[month] = {
+//           'month': month,
+//           'amount': 0,
+//           'status': false,
+//         };
+//       }
+//     }
+
+//     print('Completed fetching all months for $year');
+//   }
+
+//   @override
+//   Widget build(BuildContext context) {
+//     return Scaffold(
+//       body: isLoading
+//           ? Center(child: CircularProgressIndicator())
+//           : SafeArea(
+//               child: SingleChildScrollView(
+//                 padding: EdgeInsets.all(16),
+//                 child: Column(
+//                   crossAxisAlignment: CrossAxisAlignment.start,
+//                   children: [
+//                     // Year Filter Dropdown
+//                     Container(
+//                       padding:
+//                           EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+//                       decoration: BoxDecoration(
+//                         color: Colors.blue[50],
+//                         borderRadius: BorderRadius.circular(12),
+//                         border: Border.all(color: Colors.blue[200]!),
+//                       ),
+//                       child: Row(
+//                         children: [
+//                           Icon(Icons.calendar_today, color: Colors.blue[600]),
+//                           SizedBox(width: 12),
+//                           Text(
+//                             'Select Year: ',
+//                             style: TextStyle(
+//                               fontSize: 16,
+//                               fontWeight: FontWeight.w500,
+//                               color: Colors.blue[800],
+//                             ),
+//                           ),
+//                           Expanded(
+//                             child: DropdownButtonHideUnderline(
+//                               child: availableYears.isEmpty
+//                                   ? Text(
+//                                       'Loading years...',
+//                                       style: TextStyle(
+//                                         fontSize: 16,
+//                                         fontStyle: FontStyle.italic,
+//                                         color: Colors.grey[600],
+//                                       ),
+//                                     )
+//                                   : DropdownButton<int>(
+//                                       value:
+//                                           availableYears.contains(selectedYear)
+//                                               ? selectedYear
+//                                               : availableYears.first,
+//                                       isExpanded: true,
+//                                       items: availableYears.map((year) {
+//                                         return DropdownMenuItem<int>(
+//                                           value: year,
+//                                           child: Text(
+//                                             year.toString(),
+//                                             style: TextStyle(
+//                                               fontSize: 16,
+//                                               fontWeight: FontWeight.w500,
+//                                             ),
+//                                           ),
+//                                         );
+//                                       }).toList(),
+//                                       onChanged: (newYear) {
+//                                         if (newYear != null) {
+//                                           setState(() {
+//                                             selectedYear = newYear;
+//                                           });
+//                                           _fetchSalaries();
+//                                         }
+//                                       },
+//                                     ),
+//                             ),
+//                           ),
+//                         ],
+//                       ),
+//                     ),
+//                     SizedBox(height: 20),
+
+//                     // Monthly Salary Grid
+//                     Text(
+//                       'Monthly Salary Records - $selectedYear',
+//                       style: TextStyle(
+//                         fontSize: 20,
+//                         fontWeight: FontWeight.bold,
+//                         color: Colors.grey[800],
+//                       ),
+//                     ),
+//                     SizedBox(height: 16),
+
+//                     // Calculate total yearly salary
+//                     Container(
+//                       padding: EdgeInsets.all(16),
+//                       decoration: BoxDecoration(
+//                         gradient: LinearGradient(
+//                           colors: [Colors.green[400]!, Colors.green[600]!],
+//                           begin: Alignment.topLeft,
+//                           end: Alignment.bottomRight,
+//                         ),
+//                         borderRadius: BorderRadius.circular(12),
+//                       ),
+//                       child: Row(
+//                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
+//                         children: [
+//                           Text(
+//                             'Total Yearly Salary',
+//                             style: TextStyle(
+//                               fontSize: 18,
+//                               fontWeight: FontWeight.bold,
+//                               color: Colors.white,
+//                             ),
+//                           ),
+//                           Text(
+//                             '₹${_calculateTotalSalary()}',
+//                             style: TextStyle(
+//                               fontSize: 20,
+//                               fontWeight: FontWeight.bold,
+//                               color: Colors.white,
+//                             ),
+//                           ),
+//                         ],
+//                       ),
+//                     ),
+//                     SizedBox(height: 16),
+
+//                     // Monthly Grid
+//                     GridView.builder(
+//                       shrinkWrap: true,
+//                       physics: NeverScrollableScrollPhysics(),
+//                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+//                         crossAxisCount: 2,
+//                         childAspectRatio: 1.2,
+//                         crossAxisSpacing: 12,
+//                         mainAxisSpacing: 12,
+//                       ),
+//                       itemCount: 12,
+//                       itemBuilder: (context, index) {
+//                         final months = [
+//                           'January',
+//                           'February',
+//                           'March',
+//                           'April',
+//                           'May',
+//                           'June',
+//                           'July',
+//                           'August',
+//                           'September',
+//                           'October',
+//                           'November',
+//                           'December'
+//                         ];
+//                         final month = months[index];
+//                         final monthData = yearlyPayments[month] ??
+//                             {
+//                               'month': month,
+//                               'amount': 0,
+//                               'status': false,
+//                             };
+
+//                         return _buildMonthCard(
+//                           month: monthData['month'],
+//                           amount: monthData['amount'],
+//                           isPaid: monthData['status'],
+//                         );
+//                       },
+//                     ),
+//                   ],
+//                 ),
+//               ),
+//             ),
+//     );
+//   }
+
+//   int _calculateTotalSalary() {
+//     int total = 0;
+//     yearlyPayments.forEach((month, data) {
+//       if (data['status'] == true) {
+//         total += (data['amount'] as int);
+//       }
+//     });
+//     return total;
+//   }
+
+//   Widget _buildMonthCard({
+//     required String month,
+//     required int amount,
+//     required bool isPaid,
+//   }) {
+//     return Container(
+//       decoration: BoxDecoration(
+//         gradient: LinearGradient(
+//           colors: isPaid
+//               ? [Colors.green[100]!, Colors.green[200]!]
+//               : [Colors.red[100]!, Colors.red[200]!],
+//           begin: Alignment.topLeft,
+//           end: Alignment.bottomRight,
+//         ),
+//         borderRadius: BorderRadius.circular(16),
+//         border: Border.all(
+//           color: isPaid ? Colors.green[300]! : Colors.red[300]!,
+//           width: 1,
+//         ),
+//       ),
+//       child: Padding(
+//         padding: EdgeInsets.all(8),
+//         child: Column(
+//           mainAxisAlignment: MainAxisAlignment.center,
+//           mainAxisSize: MainAxisSize.min,
+//           children: [
+//             Flexible(
+//               child: Text(
+//                 month.substring(0, 3), // Show short month name
+//                 style: TextStyle(
+//                   fontSize: 14,
+//                   fontWeight: FontWeight.bold,
+//                   color: isPaid ? Colors.green[800] : Colors.red[800],
+//                 ),
+//                 overflow: TextOverflow.ellipsis,
+//                 textAlign: TextAlign.center,
+//               ),
+//             ),
+//             SizedBox(height: 4),
+//             Flexible(
+//               child: Text(
+//                 '₹${amount.toString()}',
+//                 style: TextStyle(
+//                   fontSize: 16,
+//                   fontWeight: FontWeight.bold,
+//                   color: isPaid ? Colors.green[900] : Colors.red[900],
+//                 ),
+//                 overflow: TextOverflow.ellipsis,
+//                 textAlign: TextAlign.center,
+//               ),
+//             ),
+//             SizedBox(height: 4),
+//             Container(
+//               padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+//               decoration: BoxDecoration(
+//                 color: isPaid ? Colors.green[600] : Colors.red[600],
+//                 borderRadius: BorderRadius.circular(8),
+//               ),
+//               child: Text(
+//                 isPaid ? 'Paid' : 'Unpaid',
+//                 style: TextStyle(
+//                   fontSize: 10,
+//                   fontWeight: FontWeight.w500,
+//                   color: Colors.white,
+//                 ),
+//                 overflow: TextOverflow.ellipsis,
+//                 textAlign: TextAlign.center,
+//               ),
+//             ),
+//           ],
+//         ),
+//       ),
+//     );
+//   }
+// }
+
+class ProfilePage extends StatefulWidget {
   @override
   _ProfilePageState createState() => _ProfilePageState();
 }
@@ -1795,47 +2850,151 @@ class _ProfilePageState extends State<ProfilePage> {
     _fetchUserData();
   }
 
-  Future<void> _fetchUserData() async {
-    User? user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      print("User is not logged in");
-      return;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Refresh data when page becomes visible
+    if (ModalRoute.of(context)?.isCurrent ?? false) {
+      _fetchUserData();
     }
+  }
 
-    print("Fetching data for UID: ${user.uid}");
-    DocumentSnapshot doc = await FirebaseFirestore.instance
-        .collection("users")
-        .doc(user.uid)
-        .get();
-
-    if (doc.exists) {
+  Future<void> _fetchUserData() async {
+    try {
       setState(() {
-        userData = doc.data() as Map<String, dynamic>;
-        _profileImageUrl = userData!["profileImageUrl"];
-        _profilePicBinary = userData!["profilePicBinary"];
+        _isLoading = true;
+      });
 
-        // 🔹 Print values for debugging
-        print("Profile Image URL: $_profileImageUrl");
-        print(
-            "Profile Binary String: ${_profilePicBinary?.substring(0, 50)}..."); // Print first 50 characters
+      print("Fetching user data for profile page...");
 
-        if (_profilePicBinary != null && _profilePicBinary!.isNotEmpty) {
-          try {
-            _profileImageBytes = base64Decode(_profilePicBinary!);
-            print(
-                "Decoded image bytes: ${_profileImageBytes!.length} bytes"); // ✅ Confirm image bytes exist
-          } catch (e) {
-            print("Error decoding base64: $e"); // 🚨 Catch decoding errors
-          }
-        } else {
+      // Use SessionManager to get cached user data
+      Map<String, dynamic>? data = await SessionManager.getCurrentUserData();
+
+      if (data != null) {
+        setState(() {
+          userData = data;
+          _profileImageUrl = userData!["profileImageUrl"];
+          _profilePicBinary = userData!["profilePicBinary"];
+
+          // 🔹 Print values for debugging
+          print("Profile Image URL: $_profileImageUrl");
           print(
-              "No profile image found in Firestore"); // 🚨 If no binary data exists
-        }
+              "Profile Binary String: ${_profilePicBinary?.substring(0, 50) ?? 'null'}...");
 
+          if (_profilePicBinary != null && _profilePicBinary!.isNotEmpty) {
+            try {
+              _profileImageBytes = base64Decode(_profilePicBinary!);
+              print("Decoded image bytes: ${_profileImageBytes!.length} bytes");
+            } catch (e) {
+              print("Error decoding base64: $e");
+            }
+          } else {
+            print("No profile image found in Firestore");
+          }
+
+          _isLoading = false;
+        });
+      } else {
+        print("No user data found, trying fallback method...");
+        await _fetchUserDataFallback();
+      }
+    } catch (e) {
+      print("Error fetching user data: $e");
+      await _fetchUserDataFallback();
+    }
+  }
+
+  Future<void> _fetchUserDataFallback() async {
+    try {
+      // Fallback: Get current Firebase Auth user
+      User? firebaseUser = FirebaseAuth.instance.currentUser;
+      if (firebaseUser == null) {
+        print("No Firebase Auth user found");
+        // Try to get from SessionManager as fallback
+        String? sessionUid = await SessionManager.getCurrentUserUid();
+        if (sessionUid != null) {
+          await _fetchUserDataByCustomUid(sessionUid);
+          return;
+        }
+        print("No user authentication found");
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+
+      print("Firebase Auth UID: ${firebaseUser.uid}");
+
+      // Look up customUid in uid_mapping collection
+      DocumentSnapshot mappingDoc = await FirebaseFirestore.instance
+          .collection("uid_mapping")
+          .doc(firebaseUser.uid)
+          .get();
+
+      if (!mappingDoc.exists) {
+        print("No mapping found for Firebase UID: ${firebaseUser.uid}");
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+
+      Map<String, dynamic> mappingData =
+          mappingDoc.data() as Map<String, dynamic>;
+      String customUid = mappingData['customUid'];
+      print("Found custom UID: $customUid");
+
+      // Fetch user data using customUid
+      await _fetchUserDataByCustomUid(customUid);
+    } catch (e) {
+      print("Error in fallback user data fetch: $e");
+      setState(() {
         _isLoading = false;
       });
-    } else {
-      print("User document does not exist in Firestore");
+    }
+  }
+
+  Future<void> _fetchUserDataByCustomUid(String customUid) async {
+    try {
+      print("Fetching user data for custom UID: $customUid");
+
+      DocumentSnapshot doc = await FirebaseFirestore.instance
+          .collection("users")
+          .doc(customUid)
+          .get();
+
+      if (doc.exists) {
+        setState(() {
+          userData = doc.data() as Map<String, dynamic>;
+          _profileImageUrl = userData!["profileImageUrl"];
+          _profilePicBinary = userData!["profilePicBinary"];
+
+          // 🔹 Print values for debugging
+          print("Profile Image URL: $_profileImageUrl");
+          print(
+              "Profile Binary String: ${_profilePicBinary?.substring(0, 50) ?? 'null'}...");
+
+          if (_profilePicBinary != null && _profilePicBinary!.isNotEmpty) {
+            try {
+              _profileImageBytes = base64Decode(_profilePicBinary!);
+              print("Decoded image bytes: ${_profileImageBytes!.length} bytes");
+            } catch (e) {
+              print("Error decoding base64: $e");
+            }
+          } else {
+            print("No profile image found in Firestore");
+          }
+
+          _isLoading = false;
+        });
+      } else {
+        print("User document does not exist for custom UID: $customUid");
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print("Error fetching user data by custom UID: $e");
       setState(() {
         _isLoading = false;
       });
@@ -1849,11 +3008,40 @@ class _ProfilePageState extends State<ProfilePage> {
     if (pickedFile == null) return;
 
     File file = File(pickedFile.path);
-    User? user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
 
     try {
-      // 🔹 Step 1: Read Image as Bytes
+      // Step 1: Get custom UID from current authentication
+      String? customUid;
+
+      // Try Firebase Auth first
+      User? firebaseUser = FirebaseAuth.instance.currentUser;
+      if (firebaseUser != null) {
+        // Look up customUid in uid_mapping collection
+        DocumentSnapshot mappingDoc = await FirebaseFirestore.instance
+            .collection("uid_mapping")
+            .doc(firebaseUser.uid)
+            .get();
+
+        if (mappingDoc.exists) {
+          Map<String, dynamic> mappingData =
+              mappingDoc.data() as Map<String, dynamic>;
+          customUid = mappingData['customUid'];
+        }
+      }
+
+      // Fallback to SessionManager
+      if (customUid == null) {
+        customUid = await SessionManager.getCurrentUserUid();
+      }
+
+      if (customUid == null) {
+        print("No user authentication found for profile upload");
+        return;
+      }
+
+      print("Uploading profile picture for custom UID: $customUid");
+
+      // 🔹 Step 2: Read Image as Bytes
       Uint8List originalBytes = await file.readAsBytes();
       img.Image? image = img.decodeImage(originalBytes);
 
@@ -1861,30 +3049,30 @@ class _ProfilePageState extends State<ProfilePage> {
         throw Exception("Failed to decode image");
       }
 
-      // 🔹 Step 2: Compress Image
+      // 🔹 Step 3: Compress Image
       Uint8List compressedBytes =
           Uint8List.fromList(img.encodeJpg(image, quality: 50));
 
-      // 🔹 Step 3: Convert to Base64 for Firestore Storage
+      // 🔹 Step 4: Convert to Base64 for Firestore Storage
       String base64String = base64Encode(compressedBytes);
 
-      // 🔹 Step 4: Upload Binary to Firestore
+      // 🔹 Step 5: Upload Binary to Firestore using customUid
       await FirebaseFirestore.instance
           .collection("users")
-          .doc(user.uid)
+          .doc(customUid)
           .update({"profilePicBinary": base64String});
 
-      // 🔹 Step 5: Upload Image to Firebase Storage
+      // 🔹 Step 6: Upload Image to Firebase Storage using customUid
       Reference storageRef = FirebaseStorage.instance
           .ref()
-          .child("profile_pictures/${user.uid}.jpg");
+          .child("profile_pictures/$customUid.jpg");
       await storageRef.putData(compressedBytes);
       String imageUrl = await storageRef.getDownloadURL();
 
-      // 🔹 Step 6: Update Firestore with Image URL
+      // 🔹 Step 7: Update Firestore with Image URL
       await FirebaseFirestore.instance
           .collection("users")
-          .doc(user.uid)
+          .doc(customUid)
           .update({"profileImageUrl": imageUrl});
 
       setState(() {
@@ -1898,6 +3086,9 @@ class _ProfilePageState extends State<ProfilePage> {
       );
     } catch (e) {
       print("Error uploading image: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error uploading profile picture: $e")),
+      );
     }
   }
 
@@ -1905,16 +3096,63 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: Text(
+          'PROFILE',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        backgroundColor: Colors.blue[600],
+        elevation: 0,
+        centerTitle: true,
+        actions: [
+          // Always visible logout button
+          IconButton(
+            icon: Icon(Icons.logout, color: Colors.white),
+            onPressed: () => _handleLogout(context),
+            tooltip: 'Logout',
+          ),
+        ],
+      ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
           : userData == null
               ? Center(
-                  child: Text(
-                    "No profile data found",
-                    style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.person_off,
+                        size: 80,
+                        color: Colors.grey[400],
+                      ),
+                      SizedBox(height: 20),
+                      Text(
+                        "No profile data found",
+                        style: TextStyle(
+                            color: Colors.black,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600),
+                      ),
+                      SizedBox(height: 20),
+                      ElevatedButton.icon(
+                        onPressed: () => _handleLogout(context),
+                        icon: Icon(Icons.logout),
+                        label: Text('Logout'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red[600],
+                          foregroundColor: Colors.white,
+                          padding: EdgeInsets.symmetric(
+                              horizontal: 24, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 )
               : SingleChildScrollView(
@@ -2189,51 +3427,26 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _buildInfoRow(String title, String? value) {
-    final isAddressOrAccount = title.toLowerCase().contains('address') ||
-        title.toLowerCase().contains('account number');
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            flex: 2,
-            child: Text(
-              title,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-                color: Colors.black87,
-              ),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: Colors.black87,
             ),
           ),
-          SizedBox(width: 10),
-          Expanded(
-            flex: 3,
-            child: isAddressOrAccount
-                ? Text(
-                    value ?? "Not provided",
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w400,
-                      color: Colors.grey[900],
-                    ),
-                    softWrap: true,
-                    overflow: TextOverflow.visible,
-                    maxLines: 2,
-                  )
-                : Text(
-                    value ?? "Not provided",
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w400,
-                      color: Colors.grey[900],
-                    ),
-                    softWrap: true,
-                    overflow: TextOverflow.visible,
-                    maxLines: null,
-                  ),
+          Text(
+            value ?? "Not provided",
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w400,
+              color: Colors.grey[900],
+            ),
           ),
         ],
       ),
@@ -2241,15 +3454,122 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   void _handleLogout(BuildContext context) async {
+    // Show confirmation dialog
+    bool shouldLogout = await showDialog<bool>(
+          context: context,
+          builder: (BuildContext context) {
+            return AlertDialog(
+              title: Text(
+                'Confirm Logout',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.red[700],
+                ),
+              ),
+              content: Text(
+                'Are you sure you want to logout?',
+                style: TextStyle(fontSize: 16),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: Text(
+                    'Cancel',
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: Text(
+                    'Logout',
+                    style: TextStyle(fontSize: 16),
+                  ),
+                ),
+              ],
+            );
+          },
+        ) ??
+        false;
+
+    if (!shouldLogout) return;
+
     try {
-      await FirebaseAuth.instance.signOut();
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return Center(
+            child: Container(
+              padding: EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 15),
+                  Text(
+                    'Logging out...',
+                    style: TextStyle(fontSize: 16),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+
+      // Clear SessionManager data
+      await SessionManager.clearUserSession();
+      print('SessionManager logout completed');
+
+      // Sign out from Firebase Auth
+      try {
+        await FirebaseAuth.instance.signOut();
+        print('Firebase Auth logout completed');
+      } catch (firebaseError) {
+        print('Firebase logout error (continuing anyway): $firebaseError');
+      }
+
+      // Close loading dialog
+      Navigator.of(context).pop();
+
+      // Navigate to login page and clear all previous routes
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (context) => LoginPage()),
         (route) => false, // This will remove all routes from the stack
       );
-    } catch (e) {
+
+      // Show success message
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error logging out: $e')),
+        SnackBar(
+          content: Text('Successfully logged out'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      // Close loading dialog if it's open
+      Navigator.of(context).pop();
+
+      print('Error during logout: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error logging out: $e'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 3),
+        ),
       );
     }
   }

@@ -10,12 +10,8 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'loginpage.dart';
 import 'package:image/image.dart' as img;
-import 'package:onesignal_flutter/onesignal_flutter.dart';
-
 
 class FirstPage extends StatefulWidget {
-  const FirstPage({super.key});
-
   @override
   _FirstPageState createState() => _FirstPageState();
 }
@@ -48,7 +44,8 @@ class _FirstPageState extends State<FirstPage> {
 
     if (pickedDate != null) {
       setState(() {
-        dobController.text = "${pickedDate.year}-${pickedDate.month}-${pickedDate.day}";
+        dobController.text =
+            "${pickedDate.year}-${pickedDate.month}-${pickedDate.day}";
         _calculateAge(pickedDate);
       });
     }
@@ -58,7 +55,8 @@ class _FirstPageState extends State<FirstPage> {
     DateTime today = DateTime.now();
     int age = today.year - dob.year;
 
-    if (today.month < dob.month || (today.month == dob.month && today.day < dob.day)) {
+    if (today.month < dob.month ||
+        (today.month == dob.month && today.day < dob.day)) {
       age--;
     }
 
@@ -84,19 +82,20 @@ class _FirstPageState extends State<FirstPage> {
             pincode: pincodeController.text,
             mobile: mobileController.text,
             altMobile: altMobileController.text,
-            whatsapp: whatsappController.text, cameras: [],
+            whatsapp: whatsappController.text,
+            cameras: [],
           ),
         ),
       );
     }
   }
+
   String? _validateRequired(String? value) {
     if (value == null || value.trim().isEmpty) {
       return "This field is required";
     }
     return null;
   }
-
 
   String? _validateName(String? value) {
     if (value == null || value.trim().isEmpty) {
@@ -128,8 +127,52 @@ class _FirstPageState extends State<FirstPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("Sign Up")),
-      body: _buildSignUpPage(),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.blue[50]!,
+              Colors.blue[100]!,
+              Colors.white,
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Custom App Bar
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: Icon(Icons.arrow_back, color: Colors.blue[600]),
+                    ),
+                    Expanded(
+                      child: Text(
+                        "Sign Up",
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue[800],
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    SizedBox(width: 48), // Balance the back button
+                  ],
+                ),
+              ),
+              Expanded(
+                child: _buildSignUpPage(),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -141,47 +184,147 @@ class _FirstPageState extends State<FirstPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Image.asset('assets/registeration.png', height: 150),
-            Text(
-              "Sign UP",
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.blue[900]),
-            ),
-            SizedBox(height: 20),
-            _buildTextField("Name", nameController, true, _validateName),
-            _buildTextField("Education Qualification", qualificationController, true, _validateRequired),
-            _buildTextField("Experience", experienceController, true, _validateRequired),
-            Row(
-              children: [
-                Expanded(child: _buildDOBField()),
-                SizedBox(width: 8),
-                Expanded(child: _buildTextField("Age", ageController, true, _validateAge)),
-              ],
-            ),
-            _buildGenderSelection(),
-            _buildTextField("Permanent Address", addressController, true, _validateRequired),
-            Row(
-              children: [
-                Expanded(child: _buildTextField("District", districtController, true, _validateRequired)),
-                SizedBox(width: 8),
-                Expanded(child: _buildTextField("State", stateController, true, _validateRequired)),
-              ],
-            ),
-            _buildTextField("PinCode", pincodeController, true, null),
-            _buildTextField("Mobile Number", mobileController, true, _validateNumber),
-            _buildTextField("Alternative Mobile Number", altMobileController, true, _validateNumber),
-            _buildTextField("WhatsApp Number", whatsappController, true, _validateNumber),
-            SizedBox(height: 30),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                foregroundColor: Colors.white,
-                backgroundColor: const Color(0xFF00008B),
-                padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 15),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                ),
+            // Logo with enhanced styling
+            Container(
+              padding: EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.blue.withOpacity(0.1),
+                    blurRadius: 20,
+                    offset: Offset(0, 10),
+                  ),
+                ],
               ),
-              onPressed: _navigateToSecondPage,
-              child: Text("NEXT", style: TextStyle(color: Colors.white, fontSize: 16)),
+              child: Image.asset('assets/registeration.png', height: 120),
+            ),
+
+            SizedBox(height: 30),
+
+            // Title with enhanced styling
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(15),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.blue.withOpacity(0.1),
+                    blurRadius: 10,
+                    offset: Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    "Sign Up",
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue[800],
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    "Welcome to SSM. Please fill in your details to continue",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            SizedBox(height: 30),
+
+            // Form Container
+            Container(
+              padding: EdgeInsets.all(25),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.blue.withOpacity(0.1),
+                    blurRadius: 20,
+                    offset: Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  _buildTextField("Name", nameController, false, null),
+                  _buildTextField("Education Qualification",
+                      qualificationController, false, null),
+                  _buildTextField(
+                      "Experience", experienceController, false, null),
+                  Row(
+                    children: [
+                      Expanded(child: _buildDOBField()),
+                      SizedBox(width: 12),
+                      Expanded(
+                          child: _buildTextField(
+                              "Age", ageController, false, null)),
+                    ],
+                  ),
+                  _buildGenderSelection(),
+                  _buildTextField(
+                      "Permanent Address", addressController, false, null),
+                  Row(
+                    children: [
+                      Expanded(
+                          child: _buildTextField(
+                              "District", districtController, false, null)),
+                      SizedBox(width: 12),
+                      Expanded(
+                          child: _buildTextField(
+                              "State", stateController, false, null)),
+                    ],
+                  ),
+                  _buildTextField("PinCode", pincodeController, false, null),
+                  _buildTextField("Mobile Number *", mobileController, true,
+                      _validateNumber),
+                  _buildTextField("Alternative Mobile Number",
+                      altMobileController, false, null),
+                  _buildTextField(
+                      "WhatsApp Number", whatsappController, false, null),
+
+                  SizedBox(height: 30),
+
+                  // Next Button
+                  Container(
+                    width: double.infinity,
+                    height: 55,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue[600],
+                        foregroundColor: Colors.white,
+                        elevation: 8,
+                        shadowColor: Colors.blue.withOpacity(0.3),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                      ),
+                      onPressed: _navigateToSecondPage,
+                      child: Text(
+                        "NEXT",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -189,7 +332,8 @@ class _FirstPageState extends State<FirstPage> {
     );
   }
 
-  Widget _buildTextField(String hint, TextEditingController controller, bool isRequired, String? Function(String?)? validator) {
+  Widget _buildTextField(String hint, TextEditingController controller,
+      bool isRequired, String? Function(String?)? validator) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 15.0),
       child: TextFormField(
@@ -197,9 +341,21 @@ class _FirstPageState extends State<FirstPage> {
         decoration: InputDecoration(
           labelText: hint,
           filled: true,
-          fillColor: Colors.grey[200],
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-          contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+          fillColor: Colors.grey[50],
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide(color: Colors.blue[200]!),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide(color: Colors.blue[200]!),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide(color: Colors.blue[600]!, width: 2),
+          ),
+          contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+          labelStyle: TextStyle(color: Colors.blue[600]),
         ),
         validator: isRequired ? validator : null,
       ),
@@ -213,62 +369,103 @@ class _FirstPageState extends State<FirstPage> {
         controller: dobController,
         readOnly: true,
         decoration: InputDecoration(
+          labelText: "Date of Birth",
           hintText: "Select Date of Birth",
           filled: true,
-          fillColor: Colors.grey[200],
+          fillColor: Colors.grey[50],
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(30),
-            borderSide: BorderSide.none,
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide(color: Colors.blue[200]!),
           ),
-          contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide(color: Colors.blue[200]!),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide(color: Colors.blue[600]!, width: 2),
+          ),
+          contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+          labelStyle: TextStyle(color: Colors.blue[600]),
           suffixIcon: IconButton(
-            icon: Icon(Icons.calendar_today, color: Colors.blue),
+            icon: Icon(Icons.calendar_today, color: Colors.blue[600]),
             onPressed: () => _selectDate(context),
           ),
         ),
-        validator: (value) => value == null || value.isEmpty ? "Date of Birth is required" : null,
+        validator: (value) =>
+            value == null || value.isEmpty ? "Date of Birth is required" : null,
       ),
     );
   }
 
   Widget _buildGenderSelection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: EdgeInsets.only(left: 8.0, bottom: 5),
-          child: Text("Gender", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        ),
-        RadioListTile(
-          value: "Male",
-          groupValue: selectedGender,
-          onChanged: (value) => setState(() => selectedGender = value!),
-          title: Text("Male"),
-        ),
-        RadioListTile(
-          value: "Female",
-          groupValue: selectedGender,
-          onChanged: (value) => setState(() => selectedGender = value!),
-          title: Text("Female"),
-        ),
-        RadioListTile(
-          value: "Other",
-          groupValue: selectedGender,
-          onChanged: (value) => setState(() => selectedGender = value!),
-          title: Text("Other"),
-        ),
-      ],
+    return Container(
+      margin: EdgeInsets.only(bottom: 15),
+      padding: EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: Colors.blue[200]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            "Gender",
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.blue[600],
+            ),
+          ),
+          SizedBox(height: 10),
+          RadioListTile(
+            value: "Male",
+            groupValue: selectedGender,
+            onChanged: (value) => setState(() => selectedGender = value!),
+            title: Text("Male", style: TextStyle(color: Colors.blue[700])),
+            activeColor: Colors.blue[600],
+            contentPadding: EdgeInsets.zero,
+          ),
+          RadioListTile(
+            value: "Female",
+            groupValue: selectedGender,
+            onChanged: (value) => setState(() => selectedGender = value!),
+            title: Text("Female", style: TextStyle(color: Colors.blue[700])),
+            activeColor: Colors.blue[600],
+            contentPadding: EdgeInsets.zero,
+          ),
+          RadioListTile(
+            value: "Other",
+            groupValue: selectedGender,
+            onChanged: (value) => setState(() => selectedGender = value!),
+            title: Text("Other", style: TextStyle(color: Colors.blue[700])),
+            activeColor: Colors.blue[600],
+            contentPadding: EdgeInsets.zero,
+          ),
+        ],
+      ),
     );
   }
 }
 
-
-
 class SecondPage extends StatefulWidget {
   final List cameras;
-  final String name, qualification, experience, dob, age, gender, address, district, state, pincode, mobile, altMobile, whatsapp;
+  final String name,
+      qualification,
+      experience,
+      dob,
+      age,
+      gender,
+      address,
+      district,
+      state,
+      pincode,
+      mobile,
+      altMobile,
+      whatsapp;
 
-  const SecondPage({
+  SecondPage({
     required this.cameras,
     required this.name,
     required this.qualification,
@@ -283,8 +480,8 @@ class SecondPage extends StatefulWidget {
     required this.mobile,
     required this.altMobile,
     required this.whatsapp,
-    super.key,
-  });
+    Key? key,
+  }) : super(key: key);
 
   @override
   _SecondPageState createState() => _SecondPageState();
@@ -296,8 +493,10 @@ class _SecondPageState extends State<SecondPage> {
   final TextEditingController castController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
-  final TextEditingController confirmPasswordController = TextEditingController();
-  final TextEditingController emergencyContactController = TextEditingController();
+  final TextEditingController confirmPasswordController =
+      TextEditingController();
+  final TextEditingController emergencyContactController =
+      TextEditingController();
   final TextEditingController bloodGroupController = TextEditingController();
   final TextEditingController fatherNameController = TextEditingController();
   final TextEditingController fatherMobileController = TextEditingController();
@@ -316,12 +515,24 @@ class _SecondPageState extends State<SecondPage> {
     var digest = sha256.convert(bytes);
     return digest.toString();
   }
+
   String? _validateRequired(String? value) {
     if (value == null || value.trim().isEmpty) {
       return "This field is required";
     }
     return null;
   }
+
+  String? _validateEmail(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return "Email is required";
+    }
+    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+      return "Enter a valid email address";
+    }
+    return null;
+  }
+
   String? _validateNumber(String? value) {
     if (value == null || value.trim().isEmpty) {
       return "This field is required";
@@ -330,7 +541,7 @@ class _SecondPageState extends State<SecondPage> {
     }
     return null;
   }
-  
+
   Future<bool> _isEmailAlreadyRegistered(String email) async {
     try {
       final querySnapshot = await FirebaseFirestore.instance
@@ -344,7 +555,8 @@ class _SecondPageState extends State<SecondPage> {
   }
 
   void _validateAndProceed() async {
-    if (passwordController.text.isEmpty || confirmPasswordController.text.isEmpty) {
+    if (passwordController.text.isEmpty ||
+        confirmPasswordController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Password fields cannot be empty")),
       );
@@ -352,23 +564,35 @@ class _SecondPageState extends State<SecondPage> {
     }
     if (passwordController.text != confirmPasswordController.text) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text( "Passwords do not match")),
+        SnackBar(content: Text("Passwords do not match")),
       );
       return;
     }
 
     String email = emailController.text.trim();
-    bool emailExists = await _isEmailAlreadyRegistered(email);
+    String mobile = widget.mobile.trim();
 
-    if (emailExists) {
+    // Check if email is provided and already exists
+    if (email.isNotEmpty) {
+      bool emailExists = await _isEmailAlreadyRegistered(email);
+      if (emailExists) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Email is already registered")),
+        );
+        return;
+      }
+    }
+
+    // Check if mobile is already registered
+    bool mobileExists = await _isMobileAlreadyRegistered(mobile);
+    if (mobileExists) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Email is already registered")),
+        SnackBar(content: Text("Mobile number is already registered")),
       );
       return;
     }
 
     try {
-
       // Store user details in Firestore with hashed password
       String hashedPassword = _hashPassword(passwordController.text.trim());
 
@@ -377,7 +601,9 @@ class _SecondPageState extends State<SecondPage> {
         context,
         MaterialPageRoute(
           builder: (context) => ThirdPage(
-            cameras: (widget.cameras).map((e) => e as CameraDescription).toList(),
+            cameras: (widget.cameras as List)
+                .map((e) => e as CameraDescription)
+                .toList(),
             name: widget.name,
             qualification: widget.qualification,
             experience: widget.experience,
@@ -414,58 +640,186 @@ class _SecondPageState extends State<SecondPage> {
     }
   }
 
+  Future<bool> _isMobileAlreadyRegistered(String mobile) async {
+    try {
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('mobile', isEqualTo: mobile)
+          .get();
+      return querySnapshot.docs.isNotEmpty;
+    } catch (e) {
+      return false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Sign Up"),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.blue[50]!,
+              Colors.blue[100]!,
+              Colors.white,
+            ],
+          ),
         ),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-        child: Form( // Wrap fields inside a Form widget
-          key: _formKey, // Assign the GlobalKey
+        child: SafeArea(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Image.asset('assets/registeration.png', height: 150),
-              const SizedBox(height: 10),
-              Text(
-                "Sign UP",
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.blue[900],
+              // Custom App Bar
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: Icon(Icons.arrow_back, color: Colors.blue[600]),
+                    ),
+                    Expanded(
+                      child: Text(
+                        "Sign Up - Step 2",
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue[800],
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    SizedBox(width: 48), // Balance the back button
+                  ],
                 ),
               ),
-              const SizedBox(height: 10),
-              const Text(
-                "Welcome To the SSM. Please Sign Up To Continue",
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: Colors.grey),
-              ),
-              const SizedBox(height: 20),
-              ..._buildAdditionalTextFields(),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        // Logo with enhanced styling
+                        Container(
+                          padding: EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.blue.withOpacity(0.1),
+                                blurRadius: 20,
+                                offset: Offset(0, 10),
+                              ),
+                            ],
+                          ),
+                          child: Image.asset('assets/registeration.png',
+                              height: 120),
+                        ),
 
-              const SizedBox(height: 30),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  backgroundColor: const Color(0xFF00008B),
-                  padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 15),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(30),
+                        SizedBox(height: 30),
+
+                        // Title with enhanced styling
+                        Container(
+                          padding: EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 15),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(15),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.blue.withOpacity(0.1),
+                                blurRadius: 10,
+                                offset: Offset(0, 5),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            children: [
+                              Text(
+                                "Sign Up - Step 2",
+                                style: TextStyle(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.blue[800],
+                                ),
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                "Welcome To the SSM. Please complete your profile",
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[600],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        SizedBox(height: 30),
+
+                        // Form Container
+                        Container(
+                          padding: EdgeInsets.all(25),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.blue.withOpacity(0.1),
+                                blurRadius: 20,
+                                offset: Offset(0, 10),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            children: [
+                              ..._buildAdditionalTextFields(),
+                              SizedBox(height: 30),
+
+                              // Next Button
+                              Container(
+                                width: double.infinity,
+                                height: 55,
+                                child: ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.blue[600],
+                                    foregroundColor: Colors.white,
+                                    elevation: 8,
+                                    shadowColor: Colors.blue.withOpacity(0.3),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(15),
+                                    ),
+                                  ),
+                                  onPressed: () {
+                                    if (_formKey.currentState!.validate()) {
+                                      _validateAndProceed();
+                                    }
+                                  },
+                                  child: Text(
+                                    "NEXT",
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 1,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                onPressed: () {
-                  if (_formKey.currentState!.validate()) { // Validate form fields
-                    _validateAndProceed();
-                  }
-                },
-                child: const Text("NEXT", style: TextStyle(fontSize: 16)),
               ),
             ],
           ),
@@ -474,23 +828,37 @@ class _SecondPageState extends State<SecondPage> {
     );
   }
 
-  Widget _buildPasswordField(String label, TextEditingController controller, bool isVisible, VoidCallback toggleVisibility) {
+  Widget _buildPasswordField(String label, TextEditingController controller,
+      bool isVisible, VoidCallback toggleVisibility) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 15.0),
       child: TextField(
         controller: controller,
         obscureText: !isVisible,
         decoration: InputDecoration(
-          hintText: label,
+          labelText: label,
           filled: true,
-          fillColor: Colors.grey[200],
+          fillColor: Colors.grey[50],
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(30),
-            borderSide: BorderSide.none,
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide(color: Colors.blue[200]!),
           ),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide(color: Colors.blue[200]!),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide(color: Colors.blue[600]!, width: 2),
+          ),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+          labelStyle: TextStyle(color: Colors.blue[600]),
           suffixIcon: IconButton(
-            icon: Icon(isVisible ? Icons.visibility : Icons.visibility_off),
+            icon: Icon(
+              isVisible ? Icons.visibility : Icons.visibility_off,
+              color: Colors.blue[600],
+            ),
             onPressed: toggleVisibility,
           ),
         ),
@@ -500,32 +868,39 @@ class _SecondPageState extends State<SecondPage> {
 
   List<Widget> _buildAdditionalTextFields() {
     return [
-      _buildTextField("Native", nativeController,true,_validateRequired),
-      _buildTextField("Religion", religionController,true,_validateRequired),
-      _buildTextField("Cast", castController,true,_validateRequired),
-      _buildTextField("Email ID", emailController,true,_validateRequired),
+      _buildTextField("Native", nativeController, false, null),
+      _buildTextField("Religion", religionController, false, null),
+      _buildTextField("Cast", castController, false, null),
+      _buildTextField(
+          "Email ID (Optional)", emailController, false, _validateEmail),
       _buildPasswordField("Password", passwordController, _passwordVisible, () {
         setState(() {
           _passwordVisible = !_passwordVisible;
         });
       }),
-      _buildPasswordField("Confirm Password", confirmPasswordController, _confirmPasswordVisible, () {
+      _buildPasswordField("Confirm Password", confirmPasswordController,
+          _confirmPasswordVisible, () {
         setState(() {
           _confirmPasswordVisible = !_confirmPasswordVisible;
         });
       }),
-      _buildTextField("Emergency Contact No", emergencyContactController,true,_validateRequired),
-      _buildTextField("Blood Group", bloodGroupController,true,_validateRequired),
-      _buildTextField("Father Name", fatherNameController,true,_validateRequired),
-      _buildTextField("Father Mobile Number", fatherMobileController,true,_validateNumber),
-      _buildTextField("Mother Name", motherNameController,true,_validateRequired),
-      _buildTextField("Mother Mobile Number", motherMobileController,true,_validateNumber),
-      _buildTextField("Spouse Name", spouseNameController,true,_validateRequired),
-      _buildTextField("Spouse Mobile Number", spouseMobileController,true,_validateNumber),
+      _buildTextField(
+          "Emergency Contact No", emergencyContactController, false, null),
+      _buildTextField("Blood Group", bloodGroupController, false, null),
+      _buildTextField("Father Name", fatherNameController, false, null),
+      _buildTextField(
+          "Father Mobile Number", fatherMobileController, false, null),
+      _buildTextField("Mother Name", motherNameController, false, null),
+      _buildTextField(
+          "Mother Mobile Number", motherMobileController, false, null),
+      _buildTextField("Spouse Name", spouseNameController, false, null),
+      _buildTextField(
+          "Spouse Mobile Number", spouseMobileController, false, null),
     ];
   }
 
-  Widget _buildTextField(String hint, TextEditingController controller, bool isRequired, String? Function(String?)? validator) {
+  Widget _buildTextField(String hint, TextEditingController controller,
+      bool isRequired, String? Function(String?)? validator) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 15.0),
       child: TextFormField(
@@ -533,9 +908,21 @@ class _SecondPageState extends State<SecondPage> {
         decoration: InputDecoration(
           labelText: hint,
           filled: true,
-          fillColor: Colors.grey[200],
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-          contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+          fillColor: Colors.grey[50],
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide(color: Colors.blue[200]!),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide(color: Colors.blue[200]!),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide(color: Colors.blue[600]!, width: 2),
+          ),
+          contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+          labelStyle: TextStyle(color: Colors.blue[600]),
         ),
         validator: isRequired ? validator : null,
       ),
@@ -543,15 +930,36 @@ class _SecondPageState extends State<SecondPage> {
   }
 }
 
-
 class ThirdPage extends StatefulWidget {
   final List<CameraDescription> cameras;
-  final String name, qualification, experience, dob, age, gender, address,
-      district, state, pincode, mobile, altMobile, whatsapp;
-  final String native, religion, cast, email, password, emergencyContact,
-      bloodGroup, fatherName, fatherMobile, motherName, motherMobile, spouseName, spouseMobile;
+  final String name,
+      qualification,
+      experience,
+      dob,
+      age,
+      gender,
+      address,
+      district,
+      state,
+      pincode,
+      mobile,
+      altMobile,
+      whatsapp;
+  final String native,
+      religion,
+      cast,
+      email,
+      password,
+      emergencyContact,
+      bloodGroup,
+      fatherName,
+      fatherMobile,
+      motherName,
+      motherMobile,
+      spouseName,
+      spouseMobile;
 
-  const ThirdPage({super.key, 
+  ThirdPage({
     required this.cameras,
     required this.name,
     required this.qualification,
@@ -584,6 +992,7 @@ class ThirdPage extends StatefulWidget {
   @override
   _ThirdPageState createState() => _ThirdPageState();
 }
+
 class _ThirdPageState extends State<ThirdPage> {
   final ImagePicker _picker = ImagePicker();
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
@@ -614,6 +1023,7 @@ class _ThirdPageState extends State<ThirdPage> {
     }
     return null;
   }
+
   // Convert image to Base64
   Future<String> _convertImageToBase64(File image) async {
     final bytes = await image.readAsBytes();
@@ -652,8 +1062,56 @@ class _ThirdPageState extends State<ThirdPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Sign Up Completed"),
-        content: const Text("Your information has been stored successfully!"),
+        title: Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.green, size: 28),
+            SizedBox(width: 10),
+            Text(
+              "Registration Successful",
+              style: TextStyle(
+                color: Colors.green[800],
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "Your registration has been completed successfully!",
+              style: TextStyle(fontSize: 16),
+            ),
+            SizedBox(height: 10),
+            Container(
+              padding: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange[200]!),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.hourglass_empty,
+                      color: Colors.orange[700], size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "Your account is pending admin verification. You'll be able to log in once approved.",
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.orange[700],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
         actions: [
           TextButton(
             onPressed: () {
@@ -663,16 +1121,24 @@ class _ThirdPageState extends State<ThirdPage> {
                 MaterialPageRoute(builder: (context) => LoginPage()),
               );
             },
-            child: const Text("OK"),
+            child: Text(
+              "Go to Login",
+              style: TextStyle(
+                color: Colors.blue[700],
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
         ],
       ),
     );
   }
+
   // Function to send OneSignal notification
   Future<void> _sendNotification(String userId, String userName) async {
     const String oneSignalAppId = "db2613bd-3067-4383-9f88-960b277c11aa";
-    const String oneSignalApiKey = "os_v2_app_3mtbhpjqm5byhh4isyfso7arvicd2ew4ctiumpvngm4fc7zhksqa44rmmxdbwn5yavmszrcr3niiyvogldvfbpzor5pvnb6wwvang5y"; // Found in OneSignal settings
+    const String oneSignalApiKey =
+        "os_v2_app_3mtbhpjqm5byhh4isyfso7arvicd2ew4ctiumpvngm4fc7zhksqa44rmmxdbwn5yavmszrcr3niiyvogldvfbpzor5pvnb6wwvang5y"; // Found in OneSignal settings
 
     final Map<String, dynamic> notificationData = {
       "app_id": oneSignalAppId,
@@ -696,56 +1162,95 @@ class _ThirdPageState extends State<ThirdPage> {
       print("Failed to send notification: ${response.body}");
     }
   }
+
   // Function to store data in Firestore
   Future<void> _storeUserData(BuildContext context) async {
     if (!_formKey.currentState!.validate()) return;
+
+    // Validate required images
+    if (_frontAadharImage == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Please upload Front Aadhar image")),
+      );
+      return;
+    }
+
+    if (_backAadharImage == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Please upload Back Aadhar image")),
+      );
+      return;
+    }
+
+    if (_signatureImage == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Please upload Signature image")),
+      );
+      return;
+    }
 
     setState(() {
       _isLoading = true;
     });
 
     try {
-      // Register the user in Firebase Authentication
-      UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: widget.email,
-        password: widget.password,
-      );
+      UserCredential? userCredential;
+      User? user;
 
-      User? user = userCredential.user;
+      // Handle Firebase Authentication based on available credentials
+      if (widget.email.isNotEmpty) {
+        // User has email - create account with email
+        userCredential =
+            await FirebaseAuth.instance.createUserWithEmailAndPassword(
+          email: widget.email,
+          password: widget.password,
+        );
+        user = userCredential.user;
+
+        if (user != null) {
+          // Send email verification
+          await user.sendEmailVerification();
+        }
+      } else {
+        // User doesn't have email - create anonymous account first
+        userCredential = await FirebaseAuth.instance.signInAnonymously();
+        user = userCredential.user;
+      }
 
       if (user != null) {
-        // Send email verification
-        await user.sendEmailVerification();
+        // Note: Phone number linking will be handled during login process
+        // For now, we store the mobile number in Firestore for login purposes
 
         // Store user data in Firestore
-        await FirebaseFirestore.instance.collection("users").doc(userCredential.user!.uid).set({
-          "uid": userCredential.user!.uid, // Store user ID
-          "name": widget.name ?? "Unknown",
-          "qualification": widget.qualification ?? "Unknown",
-          "experience": widget.experience ?? "0 years",
-          "dob": widget.dob ?? "",
-          "age": widget.age ?? "",
-          "gender": widget.gender ?? "",
-          "address": widget.address ?? "",
-          "district": widget.district ?? "",
-          "state": widget.state ?? "",
-          "pincode": widget.pincode ?? "",
-          "mobile": widget.mobile ?? "",
-          "altMobile": widget.altMobile ?? "",
-          "whatsapp": widget.whatsapp ?? "",
-          "native": widget.native ?? "",
-          "religion": widget.religion ?? "",
-          "cast": widget.cast ?? "",
-          "email": widget.email ?? "",
-          "password": widget.password ?? "",
-          "emergencyContact": widget.emergencyContact ?? "",
-          "bloodGroup": widget.bloodGroup ?? "",
-          "fatherName": widget.fatherName ?? "",
-          "fatherMobile": widget.fatherMobile ?? "",
-          "motherName": widget.motherName ?? "",
-          "motherMobile": widget.motherMobile ?? "",
-          "spouseName": widget.spouseName ?? "",
-          "spouseMobile": widget.spouseMobile ?? "",
+        await FirebaseFirestore.instance.collection("users").doc(user.uid).set({
+          "Eid": user.uid, // Store user ID
+          "name": widget.name,
+          "qualification": widget.qualification,
+          "experience": widget.experience,
+          "dob": widget.dob,
+          "age": widget.age,
+          "gender": widget.gender,
+          "address": widget.address,
+          "district": widget.district,
+          "state": widget.state,
+          "pincode": widget.pincode,
+          "mobile": widget.mobile,
+          "phone": widget.mobile, // Also store as phone for login
+          "altMobile": widget.altMobile,
+          "whatsapp": widget.whatsapp,
+          "native": widget.native,
+          "religion": widget.religion,
+          "cast": widget.cast,
+          "email": widget.email,
+          "password": widget.password,
+          "emergencyContact": widget.emergencyContact,
+          "bloodGroup": widget.bloodGroup,
+          "fatherName": widget.fatherName,
+          "fatherMobile": widget.fatherMobile,
+          "motherName": widget.motherName,
+          "motherMobile": widget.motherMobile,
+          "spouseName": widget.spouseName,
+          "spouseMobile": widget.spouseMobile,
           "aadhar": aadharController.text,
           "pan": panController.text,
           "epf": epfController.text,
@@ -753,7 +1258,9 @@ class _ThirdPageState extends State<ThirdPage> {
           "bank_name": bankNameController.text,
           "account_holder": accountHolderController.text,
           "account_number": accountNumberController.text,
-          "ifsc": ifscController.text.length == 11 ? ifscController.text : "INVALID_IFSC",
+          "ifsc": ifscController.text.length == 11
+              ? ifscController.text
+              : "INVALID_IFSC",
           "front_aadhar_image_bitcode": _frontAadharBitCode ?? "",
           "back_aadhar_image_bitcode": _backAadharBitCode ?? "",
           "signature_image_bitcode": _signatureBitCode ?? "",
@@ -761,7 +1268,12 @@ class _ThirdPageState extends State<ThirdPage> {
           "status": false,
         });
 
-        await _sendNotification(user.uid, widget.name ?? "User");
+        await _sendNotification(user.uid, widget.name);
+
+        // Sign out the user immediately after registration to prevent auto-login
+        await FirebaseAuth.instance.signOut();
+        print('User signed out after registration to prevent auto-login');
+
         _showSuccessDialog();
       }
     } on FirebaseAuthException catch (e) {
@@ -795,8 +1307,8 @@ class _ThirdPageState extends State<ThirdPage> {
     }
   }
 
-
-  Widget _buildTextField(String hint, TextEditingController controller, bool isRequired, String? Function(String?)? validator) {
+  Widget _buildTextField(String hint, TextEditingController controller,
+      bool isRequired, String? Function(String?)? validator) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 15.0),
       child: TextFormField(
@@ -804,89 +1316,466 @@ class _ThirdPageState extends State<ThirdPage> {
         decoration: InputDecoration(
           labelText: hint,
           filled: true,
-          fillColor: Colors.grey[200],
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-          contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+          fillColor: Colors.grey[50],
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide(color: Colors.blue[200]!),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide(color: Colors.blue[200]!),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(15),
+            borderSide: BorderSide(color: Colors.blue[600]!, width: 2),
+          ),
+          contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+          labelStyle: TextStyle(color: Colors.blue[600]),
         ),
         validator: isRequired ? validator : null,
       ),
     );
   }
 
+  Widget _buildDocumentUploadSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Aadhaar Front Upload
+        Container(
+          padding: EdgeInsets.all(15),
+          decoration: BoxDecoration(
+            color: Colors.red[50],
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(color: Colors.red[200]!),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Upload Aadhaar Front *",
+                style: TextStyle(
+                  color: Colors.red[700],
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              SizedBox(height: 10),
+              _frontAadharImage != null
+                  ? Container(
+                      height: 100,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.blue[200]!),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child:
+                            Image.file(_frontAadharImage!, fit: BoxFit.cover),
+                      ),
+                    )
+                  : Container(
+                      height: 100,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.grey[300]!),
+                      ),
+                      child: Center(
+                        child: Text(
+                          "No image selected",
+                          style: TextStyle(color: Colors.grey[600]),
+                        ),
+                      ),
+                    ),
+              SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () =>
+                      _pickImage(ImageSource.gallery, "front_aadhar"),
+                  icon: Icon(Icons.upload, color: Colors.white),
+                  label: Text("Upload Front Aadhaar"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue[600],
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        SizedBox(height: 15),
+
+        // Aadhaar Back Upload
+        Container(
+          padding: EdgeInsets.all(15),
+          decoration: BoxDecoration(
+            color: Colors.red[50],
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(color: Colors.red[200]!),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Upload Aadhaar Back *",
+                style: TextStyle(
+                  color: Colors.red[700],
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              SizedBox(height: 10),
+              _backAadharImage != null
+                  ? Container(
+                      height: 100,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.blue[200]!),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Image.file(_backAadharImage!, fit: BoxFit.cover),
+                      ),
+                    )
+                  : Container(
+                      height: 100,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.grey[300]!),
+                      ),
+                      child: Center(
+                        child: Text(
+                          "No image selected",
+                          style: TextStyle(color: Colors.grey[600]),
+                        ),
+                      ),
+                    ),
+              SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () =>
+                      _pickImage(ImageSource.gallery, "back_aadhar"),
+                  icon: Icon(Icons.upload, color: Colors.white),
+                  label: Text("Upload Back Aadhaar"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue[600],
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        SizedBox(height: 15),
+
+        // Signature Upload
+        Container(
+          padding: EdgeInsets.all(15),
+          decoration: BoxDecoration(
+            color: Colors.red[50],
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(color: Colors.red[200]!),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Upload Signature *",
+                style: TextStyle(
+                  color: Colors.red[700],
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              SizedBox(height: 10),
+              _signatureImage != null
+                  ? Container(
+                      height: 100,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.blue[200]!),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Image.file(_signatureImage!, fit: BoxFit.cover),
+                      ),
+                    )
+                  : Container(
+                      height: 100,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.grey[300]!),
+                      ),
+                      child: Center(
+                        child: Text(
+                          "No image selected",
+                          style: TextStyle(color: Colors.grey[600]),
+                        ),
+                      ),
+                    ),
+              SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _pickImage(ImageSource.gallery, "signature"),
+                  icon: Icon(Icons.upload, color: Colors.white),
+                  label: Text("Upload Signature"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue[600],
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("Sign Up")),
-      body: Stack(
-        children: [
-          SingleChildScrollView(
-            padding: EdgeInsets.all(20),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                children: [
-                  Image.asset('assets/registeration.png', height: 150),
-                  _buildTextField("Aadhar Number (Optional)", aadharController, true, _validateRequired),
-                  _buildTextField("PAN Number", panController, true, _validateRequired),
-                  _buildTextField("EPF Number", epfController, true, _validateRequired),
-                  _buildTextField("ESI Number", esiController, true, _validateRequired),
-                  _buildTextField("Bank Name", bankNameController, true, _validateRequired),
-                  _buildTextField("Account Holder Name", accountHolderController, true, _validateRequired),
-                  _buildTextField("Account Number", accountNumberController, true, _validateRequired),
-                  _buildTextField("IFSC Code", ifscController, true, _validateRequired),
-
-                  SizedBox(height: 10),
-
-                  Text("Upload Aadhaar Front"),
-                  _frontAadharImage != null
-                      ? Image.file(_frontAadharImage!, height: 100)
-                      : Text("No image selected"),
-                  ElevatedButton(
-                    onPressed: () => _pickImage(ImageSource.gallery, "front_aadhar"),
-                    child: Text("Upload Front Aadhaar"),
-                  ),
-
-                  SizedBox(height: 10),
-
-                  Text("Upload Aadhaar Back"),
-                  _backAadharImage != null
-                      ? Image.file(_backAadharImage!, height: 100)
-                      : Text("No image selected"),
-                  ElevatedButton(
-                    onPressed: () => _pickImage(ImageSource.gallery, "back_aadhar"),
-                    child: Text("Upload Back Aadhaar"),
-                  ),
-
-                  SizedBox(height: 10),
-
-                  Text("Upload Signature"),
-                  _signatureImage != null
-                      ? Image.file(_signatureImage!, height: 100)
-                      : Text("No image selected"),
-                  ElevatedButton(
-                    onPressed: () => _pickImage(ImageSource.gallery, "signature"),
-                    child: Text("Upload Signature"),
-                  ),
-
-                  SizedBox(height: 20),
-
-                  ElevatedButton(
-                    onPressed: _isLoading ? null : () => _storeUserData(context),
-                    child: _isLoading ? CircularProgressIndicator(color: Colors.white) : Text("SUBMIT"),
-                  ),
-                ],
-              ),
-            ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.blue[50]!,
+              Colors.blue[100]!,
+              Colors.white,
+            ],
           ),
-
-          if (_isLoading)
-            Container(
-              color: Colors.black.withOpacity(0.5),
-              child: Center(
-                child: CircularProgressIndicator(),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Custom App Bar
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: Icon(Icons.arrow_back, color: Colors.blue[600]),
+                    ),
+                    Expanded(
+                      child: Text(
+                        "Sign Up - Final Step",
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue[800],
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    SizedBox(width: 48), // Balance the back button
+                  ],
+                ),
               ),
-            ),
-        ],
+              Expanded(
+                child: Stack(
+                  children: [
+                    SingleChildScrollView(
+                      padding: EdgeInsets.all(20),
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
+                          children: [
+                            // Logo with enhanced styling
+                            Container(
+                              padding: EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(20),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.blue.withOpacity(0.1),
+                                    blurRadius: 20,
+                                    offset: Offset(0, 10),
+                                  ),
+                                ],
+                              ),
+                              child: Image.asset('assets/registeration.png',
+                                  height: 120),
+                            ),
+
+                            SizedBox(height: 30),
+
+                            // Title with enhanced styling
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: 20, vertical: 15),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(15),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.blue.withOpacity(0.1),
+                                    blurRadius: 10,
+                                    offset: Offset(0, 5),
+                                  ),
+                                ],
+                              ),
+                              child: Column(
+                                children: [
+                                  Text(
+                                    "Sign Up - Final Step",
+                                    style: TextStyle(
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.blue[800],
+                                    ),
+                                  ),
+                                  SizedBox(height: 8),
+                                  Text(
+                                    "Complete your registration with documents",
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.grey[600],
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            SizedBox(height: 30),
+
+                            // Form Container
+                            Container(
+                              padding: EdgeInsets.all(25),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(20),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.blue.withOpacity(0.1),
+                                    blurRadius: 20,
+                                    offset: Offset(0, 10),
+                                  ),
+                                ],
+                              ),
+                              child: Column(
+                                children: [
+                                  _buildTextField("Aadhar Number (Optional)",
+                                      aadharController, false, null),
+                                  _buildTextField(
+                                      "PAN Number", panController, false, null),
+                                  _buildTextField(
+                                      "EPF Number", epfController, false, null),
+                                  _buildTextField(
+                                      "ESI Number", esiController, false, null),
+                                  _buildTextField("Bank Name",
+                                      bankNameController, false, null),
+                                  _buildTextField("Account Holder Name",
+                                      accountHolderController, false, null),
+                                  _buildTextField("Account Number",
+                                      accountNumberController, false, null),
+                                  _buildTextField(
+                                      "IFSC Code", ifscController, false, null),
+
+                                  SizedBox(height: 20),
+
+                                  // Document Upload Section
+                                  _buildDocumentUploadSection(),
+
+                                  SizedBox(height: 30),
+
+                                  // Submit Button
+                                  Container(
+                                    width: double.infinity,
+                                    height: 55,
+                                    child: ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.blue[600],
+                                        foregroundColor: Colors.white,
+                                        elevation: 8,
+                                        shadowColor:
+                                            Colors.blue.withOpacity(0.3),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(15),
+                                        ),
+                                      ),
+                                      onPressed: _isLoading
+                                          ? null
+                                          : () => _storeUserData(context),
+                                      child: _isLoading
+                                          ? CircularProgressIndicator(
+                                              color: Colors.white,
+                                              strokeWidth: 2,
+                                            )
+                                          : Text(
+                                              "SUBMIT",
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.bold,
+                                                letterSpacing: 1,
+                                              ),
+                                            ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (_isLoading)
+                      Container(
+                        color: Colors.black.withOpacity(0.5),
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              CircularProgressIndicator(
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.blue[600]!),
+                              ),
+                              SizedBox(height: 20),
+                              Text(
+                                'Processing...',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

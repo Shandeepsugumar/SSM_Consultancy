@@ -1,0 +1,135 @@
+// Updated Firestore Security Rules for Consultancy App
+// Copy these rules to your Firebase Console -> Firestore Database -> Rules
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Users collection - contains user profile data
+    match /users/{userId} {
+      // Allow read/write access to authenticated users for their own document
+      allow read, write: if request.auth != null && 
+        (request.auth.uid == userId || 
+         resource.data.firebaseUid == request.auth.uid ||
+         isAdminUser());
+      
+      // Allow admin to read all user documents
+      allow read: if request.auth != null && isAdminUser();
+    }
+    
+    // UID Mapping collection - maps Firebase UIDs to custom employee IDs
+    match /uid_mapping/{firebaseUid} {
+      // Allow read/write access to authenticated users for their own mapping
+      allow read, write: if request.auth != null && 
+        (request.auth.uid == firebaseUid || isAdminUser());
+    }
+    
+    // Live Locations collection - stores real-time location data
+    match /live_locations/{eid} {
+      // Allow authenticated users to read/write their own location
+      allow read, write: if request.auth != null && 
+        (isOwnerOfEid(eid) || isAdminUser());
+      
+      // Allow admin to read all locations
+      allow read: if request.auth != null && isAdminUser();
+    }
+    
+    // Schedule collection - employee work schedules
+    match /schedule/{scheduleId} {
+      // Allow authenticated users to read their own schedules
+      allow read: if request.auth != null && 
+        (resource.data.employeeId == getCurrentEmployeeId() || isAdminUser());
+      
+      // Allow admin to read/write all schedules
+      allow read, write: if request.auth != null && isAdminUser();
+    }
+    
+    // Attendance collection - employee attendance records
+    match /attendance/{eid} {
+      // Allow authenticated users to read/write their own attendance
+      allow read, write: if request.auth != null && 
+        (isOwnerOfEid(eid) || isAdminUser());
+      
+      // Allow admin to read all attendance records
+      allow read: if request.auth != null && isAdminUser();
+      
+      // Allow access to subcollections (dates)
+      match /dates/{date} {
+        allow read, write: if request.auth != null && 
+          (isOwnerOfEid(eid) || isAdminUser());
+      }
+    }
+    
+    // Salary Records collection - employee salary information
+    match /salary_records/{salaryId} {
+      // Allow authenticated users to read their own salary records
+      allow read: if request.auth != null && 
+        (resource.data.employeeId == getCurrentEmployeeId() || isAdminUser());
+      
+      // Allow admin to read/write all salary records
+      allow read, write: if request.auth != null && isAdminUser();
+    }
+    
+    // Admin collection - for admin management
+    match /admins/{adminId} {
+      // Only allow admin access
+      allow read, write: if request.auth != null && isAdminUser();
+    }
+    
+    // Helper Functions
+    function isAdminUser() {
+      // Check if user is admin - you can customize this logic
+      return request.auth.token.email == 'admin@yourcompany.com' ||
+             exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    
+    function getCurrentEmployeeId() {
+      // Get current user's employee ID from uid_mapping
+      return get(/databases/$(database)/documents/uid_mapping/$(request.auth.uid)).data.customUid;
+    }
+    
+    function getCurrentEid() {
+      // Get current user's Eid from users collection using Firebase UID
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.Eid;
+    }
+    
+    function isOwnerOfEid(eid) {
+      // Check if the current user owns this Eid
+      return getCurrentEid() == eid;
+    }
+  }
+}
+
+// Example Data Structure for live_locations collection:
+// Document ID: Firebase UID (from Eid field in users collection)
+// Document Data:
+// {
+//   "employeeId": "SSM023",
+//   "Eid": "firebase_uid_here",
+//   "name": "John Doe", 
+//   "email": "john@example.com",
+//   "mobile": "+1234567890",
+//   "latitude": 12.9716,
+//   "longitude": 77.5946,
+//   "timestamp": firestore_server_timestamp,
+//   "lastUpdate": "2025-10-05T10:30:00.000Z",
+//   "accuracy": 5.0,
+//   "altitude": 920.0,
+//   "speed": 0.0,
+//   "status": "active" // or "background"
+// }
+//
+// Example Data Structure for attendance collection:
+// Document ID: Firebase UID (from Eid field in users collection)
+// Subcollection: dates/YYYY-MM-DD
+// Document Data:
+// {
+//   "employeeId": "SSM023",
+//   "Eid": "firebase_uid_here",
+//   "name": "John Doe",
+//   "checkInTime": "2025-10-05T09:00:00.000Z",
+//   "checkOutTime": "2025-10-05T18:00:00.000Z",
+//   "formattedTime": "09'hrs':00'min':00'sec'",
+//   "currentDate": "2025-10-05",
+//   "status": "checked-out"
+// }

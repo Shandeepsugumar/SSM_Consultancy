@@ -1,41 +1,65 @@
-// main.dart (including SplashScreen)
-import 'dart:async';
-import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'dart:async';
+import 'loginpage.dart';
+import 'home_page_user.dart'; // Ensure this file exists and HomePage widget is defined
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'loginpage.dart';
-import 'background_location_service.dart';
+import 'firebase_options.dart';
 
-// Global list for available cameras.
-List<CameraDescription> cameras = [];
-
-Future<void> main() async {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  cameras = await availableCameras();
-  await Firebase.initializeApp();
-  // Wait a moment for Firebase to fully initialize
-  await Future.delayed(Duration(milliseconds: 500));
-  // Temporarily disable background service to prevent crashes
-  // await initializeService();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: SplashScreen(),
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        useMaterial3: false, // Disable Material 3 to test if it fixes icons
+        fontFamily: 'Roboto',
+        bottomNavigationBarTheme: BottomNavigationBarThemeData(
+          backgroundColor: Colors.white,
+          selectedItemColor: Colors.blueAccent,
+          unselectedItemColor: Colors.grey,
+          type: BottomNavigationBarType.fixed,
+          selectedLabelStyle: TextStyle(fontSize: 12),
+          unselectedLabelStyle: TextStyle(fontSize: 12),
+        ),
+      ),
+      home: AuthWrapper(),
+    );
+  }
+}
+
+class AuthWrapper extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return SplashScreen();
+        }
+
+        if (snapshot.hasData && snapshot.data != null) {
+          // User is logged in
+          return HomePage();
+        } else {
+          // User is not logged in
+          return LoginPage();
+        }
+      },
     );
   }
 }
 
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
-
   @override
   _SplashScreenState createState() => _SplashScreenState();
 }
@@ -44,25 +68,27 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    startTracking(); // Start tracking location, if needed.
 
-    // Navigate to the appropriate page after a delay.
-    Timer(Duration(seconds: 5), () {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => LoginPage()),
-      );
+    // Navigate after 3 seconds based on user authentication state
+    Timer(Duration(seconds: 3), () {
+      if (mounted) {
+        // Check if user is already logged in
+        User? currentUser = FirebaseAuth.instance.currentUser;
+        if (currentUser != null) {
+          // User is already logged in, navigate to home page
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => HomePage()),
+          );
+        } else {
+          // User is not logged in, navigate to login page
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => LoginPage()),
+          );
+        }
+      }
     });
-  }
-
-  // Example function for tracking location (ensure proper permissions elsewhere).
-  Future<void> startTracking() async {
-    // Wait for authentication to ensure a valid user session.
-    await FirebaseAuth.instance.authStateChanges().first;
-    User? user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    // Your location tracking logic here (e.g., using geolocator)...
   }
 
   @override
@@ -73,10 +99,16 @@ class _SplashScreenState extends State<SplashScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Image.asset('assets/logo.png', width: 250, height: 150),
-            const SizedBox(height: 20),
-            const Text('Powered by SSM',
-                style: TextStyle(fontSize: 16, color: Colors.grey)),
+            Image.asset(
+              'assets/logo.png',
+              width: 250, // Ensured correct size
+              height: 150,
+            ),
+            SizedBox(height: 20),
+            Text(
+              'Powered by SSM',
+              style: TextStyle(fontSize: 16, color: Colors.grey),
+            ),
           ],
         ),
       ),
