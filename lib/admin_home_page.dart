@@ -1674,110 +1674,130 @@ class _EmployeeAttendancePageState extends State<EmployeeAttendancePage> {
     return Card(
       margin: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       elevation: 2,
-      child: Padding(
-        padding: EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor: Color(0xFF2196F3),
-                  child: Text(
-                    employee['name'].toString().isNotEmpty
-                        ? employee['name'].toString()[0].toUpperCase()
-                        : '?',
-                    style: TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.bold),
+      child: InkWell(
+        onTap: () => _navigateToEmployeeDates(employee),
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: Color(0xFF2196F3),
+                    child: Text(
+                      employee['name'].toString().isNotEmpty
+                          ? employee['name'].toString()[0].toUpperCase()
+                          : '?',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
                   ),
-                ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          employee['name'],
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          'ID: ${employee['eid']}',
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 12,
+                          ),
+                        ),
+                        Text(
+                          employee['email'],
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
                     children: [
                       Text(
-                        employee['name'],
+                        'Attendance Records',
                         style: TextStyle(
-                          fontSize: 16,
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      Text(
+                        '${employee['attendanceCount']}',
+                        style: TextStyle(
+                          fontSize: 18,
                           fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        'ID: ${employee['eid']}',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 12,
-                        ),
-                      ),
-                      Text(
-                        employee['email'],
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 12,
+                          color: Color(0xFF2196F3),
                         ),
                       ),
                     ],
                   ),
-                ),
-                Column(
-                  children: [
-                    Text(
-                      'Attendance Records',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                    Text(
-                      '${employee['attendanceCount']}',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF2196F3),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildAttendanceChip(
-                    'Present: ${employee['presentDays']}',
-                    Colors.green,
+                  SizedBox(width: 8),
+                  Icon(
+                    Icons.arrow_forward_ios,
+                    color: Colors.grey[400],
+                    size: 16,
                   ),
-                ),
-                SizedBox(width: 8),
-                Expanded(
-                  child: _buildAttendanceChip(
-                    'Half Day: ${employee['halfDaysPresentCount']}',
-                    Colors.orange,
-                  ),
-                ),
-                SizedBox(width: 8),
-                Expanded(
-                  child: _buildAttendanceChip(
-                    'Absent: ${employee['absentDays']}',
-                    Colors.red,
-                  ),
-                ),
-              ],
-            ),
-            if (employee['recentDates'].isNotEmpty) ...[
-              SizedBox(height: 8),
-              Text(
-                'Recent Dates: ${employee['recentDates'].join(', ')}',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[600],
-                ),
+                ],
               ),
+              SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildAttendanceChip(
+                      'Present: ${employee['presentDays']}',
+                      Colors.green,
+                    ),
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: _buildAttendanceChip(
+                      'Half Day: ${employee['halfDaysPresentCount']}',
+                      Colors.orange,
+                    ),
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: _buildAttendanceChip(
+                      'Absent: ${employee['absentDays']}',
+                      Colors.red,
+                    ),
+                  ),
+                ],
+              ),
+              if (employee['recentDates'].isNotEmpty) ...[
+                SizedBox(height: 8),
+                Text(
+                  'Recent Dates: ${employee['recentDates'].join(', ')}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
+      ),
+    );
+  }
+
+  // Navigate to employee dates page (Level 1)
+  void _navigateToEmployeeDates(Map<String, dynamic> employee) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EmployeeDatesPage(employee: employee),
       ),
     );
   }
@@ -1802,6 +1822,759 @@ class _EmployeeAttendancePageState extends State<EmployeeAttendancePage> {
     );
   }
 }
+
+// =================== DRILL-DOWN PAGES ===================
+
+// Level 1: Employee Dates Page - Shows all dates with currentDate field
+class EmployeeDatesPage extends StatefulWidget {
+  final Map<String, dynamic> employee;
+
+  const EmployeeDatesPage({Key? key, required this.employee}) : super(key: key);
+
+  @override
+  _EmployeeDatesPageState createState() => _EmployeeDatesPageState();
+}
+
+class _EmployeeDatesPageState extends State<EmployeeDatesPage> {
+  List<Map<String, dynamic>> _attendanceDates = [];
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAttendanceDates();
+  }
+
+  Future<void> _loadAttendanceDates() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      print('🔍 Loading attendance dates for ${widget.employee['name']}...');
+
+      String uid = widget.employee['uid'];
+      String eid = widget.employee['eid'];
+
+      List<Map<String, dynamic>> datesList = [];
+
+      // Strategy 1: Try by Firebase UID
+      try {
+        QuerySnapshot datesSnapshot = await FirebaseFirestore.instance
+            .collection('attendance')
+            .doc(uid)
+            .collection('dates')
+            .get();
+
+        if (datesSnapshot.docs.isNotEmpty) {
+          print('✅ Found ${datesSnapshot.docs.length} dates by UID');
+          for (var doc in datesSnapshot.docs) {
+            Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+            datesList.add({
+              'dateId': doc.id,
+              'currentDate': data['currentDate'] ?? doc.id,
+              'data': data,
+              'attendanceUid': uid,
+            });
+          }
+        }
+      } catch (e) {
+        print('⚠️ UID strategy failed: $e');
+      }
+
+      // Strategy 2: Try by EID if no results
+      if (datesList.isEmpty && eid != uid) {
+        try {
+          QuerySnapshot datesSnapshot = await FirebaseFirestore.instance
+              .collection('attendance')
+              .doc(eid)
+              .collection('dates')
+              .get();
+
+          if (datesSnapshot.docs.isNotEmpty) {
+            print('✅ Found ${datesSnapshot.docs.length} dates by EID');
+            for (var doc in datesSnapshot.docs) {
+              Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+              datesList.add({
+                'dateId': doc.id,
+                'currentDate': data['currentDate'] ?? doc.id,
+                'data': data,
+                'attendanceUid': eid,
+              });
+            }
+          }
+        } catch (e) {
+          print('⚠️ EID strategy failed: $e');
+        }
+      }
+
+      // Sort by date
+      datesList.sort((a, b) {
+        String dateA = a['currentDate'].toString();
+        String dateB = b['currentDate'].toString();
+        return dateB.compareTo(dateA); // Latest first
+      });
+
+      setState(() {
+        _attendanceDates = datesList;
+        _isLoading = false;
+      });
+
+      print('🎉 Loaded ${datesList.length} attendance dates!');
+    } catch (e) {
+      print('❌ Error loading attendance dates: $e');
+      setState(() {
+        _attendanceDates = [];
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey[100],
+      appBar: AppBar(
+        title: Text(
+          '${widget.employee['name']} - Attendance Dates',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        backgroundColor: Color(0xFF2196F3),
+        iconTheme: IconThemeData(color: Colors.white),
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.refresh),
+            onPressed: _loadAttendanceDates,
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Employee info header
+          Container(
+            width: double.infinity,
+            color: Color(0xFF2196F3),
+            padding: EdgeInsets.all(16),
+            child: Card(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: Color(0xFF2196F3),
+                      radius: 30,
+                      child: Text(
+                        widget.employee['name'].toString().isNotEmpty
+                            ? widget.employee['name']
+                                .toString()[0]
+                                .toUpperCase()
+                            : '?',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 24,
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.employee['name'],
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            'Employee ID: ${widget.employee['eid']}',
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontSize: 14,
+                            ),
+                          ),
+                          Text(
+                            widget.employee['email'],
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Column(
+                      children: [
+                        Text(
+                          'Total Records',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        Text(
+                          '${widget.employee['attendanceCount']}',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF2196F3),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // Date cards list
+          Expanded(
+            child: _isLoading
+                ? Center(child: CircularProgressIndicator())
+                : _attendanceDates.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.calendar_today,
+                                size: 64, color: Colors.grey),
+                            SizedBox(height: 16),
+                            Text(
+                              'No attendance dates found',
+                              style:
+                                  TextStyle(fontSize: 18, color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: _loadAttendanceDates,
+                        child: ListView.builder(
+                          padding: EdgeInsets.all(16),
+                          itemCount: _attendanceDates.length,
+                          itemBuilder: (context, index) {
+                            final attendance = _attendanceDates[index];
+                            return _buildDateCard(attendance);
+                          },
+                        ),
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDateCard(Map<String, dynamic> attendance) {
+    String currentDate = attendance['currentDate'].toString();
+    Map<String, dynamic> data = attendance['data'];
+
+    // Get status and basic info
+    String status = _determineAttendanceStatus(data);
+    String checkIn = data['checkInTime']?.toString() ?? 'Not recorded';
+    String checkOut = data['checkOutTime']?.toString() ?? 'Not recorded';
+
+    // Get color based on status
+    Color statusColor = _getStatusColor(status);
+
+    return Card(
+      margin: EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      child: InkWell(
+        onTap: () => _navigateToDateDetails(attendance),
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      _getStatusIcon(status),
+                      color: statusColor,
+                      size: 24,
+                    ),
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Date: $currentDate',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          'Status: $status',
+                          style: TextStyle(
+                            color: statusColor,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.arrow_forward_ios,
+                    color: Colors.grey[400],
+                    size: 16,
+                  ),
+                ],
+              ),
+              SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildTimeChip('Check In', checkIn, Colors.green),
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: _buildTimeChip('Check Out', checkOut, Colors.red),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTimeChip(String label, String time, Color color) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          Text(
+            time,
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _determineAttendanceStatus(Map<String, dynamic> data) {
+    if (data.containsKey('attendance_status')) {
+      String status = data['attendance_status']?.toString() ?? '';
+      if (status.isNotEmpty) return status;
+    }
+
+    if (data.containsKey('status')) {
+      String status = data['status']?.toString() ?? '';
+      String checkOut = data['checkOutTime']?.toString() ?? '';
+
+      if (status == 'checked-in' && checkOut.isEmpty) {
+        return 'Present';
+      } else if (status == 'checked-out') {
+        return 'Present';
+      }
+    }
+
+    String checkIn = data['checkInTime']?.toString() ?? '';
+    if (checkIn.isNotEmpty && checkIn != 'Not recorded') {
+      return 'Present';
+    }
+
+    return 'Absent';
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'present':
+        return Colors.green;
+      case 'halfday present':
+      case 'half day present':
+      case 'half-day present':
+        return Colors.orange;
+      case 'absent':
+        return Colors.red;
+      case 'late':
+        return Colors.amber;
+      default:
+        return Colors.blue;
+    }
+  }
+
+  IconData _getStatusIcon(String status) {
+    switch (status.toLowerCase()) {
+      case 'present':
+        return Icons.check_circle;
+      case 'halfday present':
+      case 'half day present':
+      case 'half-day present':
+        return Icons.schedule;
+      case 'absent':
+        return Icons.cancel;
+      case 'late':
+        return Icons.access_time;
+      default:
+        return Icons.info;
+    }
+  }
+
+  // Navigate to date details page (Level 2)
+  void _navigateToDateDetails(Map<String, dynamic> attendance) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DateDetailsPage(
+          employee: widget.employee,
+          attendance: attendance,
+        ),
+      ),
+    );
+  }
+}
+
+// Level 2: Date Details Page - Shows detailed attendance info
+class DateDetailsPage extends StatefulWidget {
+  final Map<String, dynamic> employee;
+  final Map<String, dynamic> attendance;
+
+  const DateDetailsPage({
+    Key? key,
+    required this.employee,
+    required this.attendance,
+  }) : super(key: key);
+
+  @override
+  _DateDetailsPageState createState() => _DateDetailsPageState();
+}
+
+class _DateDetailsPageState extends State<DateDetailsPage> {
+  @override
+  Widget build(BuildContext context) {
+    Map<String, dynamic> data = widget.attendance['data'];
+    String currentDate = widget.attendance['currentDate'].toString();
+
+    // Extract the required fields
+    String eid = data['Eid']?.toString() ?? widget.employee['eid'].toString();
+    String name =
+        data['name']?.toString() ?? widget.employee['name'].toString();
+    String attendanceStatus = data['attendance_status']?.toString() ??
+        _determineAttendanceStatus(data);
+    String checkInTime = data['checkInTime']?.toString() ?? 'Not recorded';
+    String checkOutTime = data['checkOutTime']?.toString() ?? 'Not recorded';
+    String formattedTime =
+        data['formattedTime']?.toString() ?? 'Not calculated';
+
+    return Scaffold(
+      backgroundColor: Colors.grey[100],
+      appBar: AppBar(
+        title: Text(
+          'Attendance Details',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        backgroundColor: Color(0xFF2196F3),
+        iconTheme: IconThemeData(color: Colors.white),
+        elevation: 0,
+      ),
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            // Header with date info
+            Container(
+              width: double.infinity,
+              color: Color(0xFF2196F3),
+              padding: EdgeInsets.all(16),
+              child: Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.calendar_today,
+                        size: 48,
+                        color: Color(0xFF2196F3),
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        currentDate,
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'Attendance Details',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            SizedBox(height: 16),
+
+            // Required fields display
+            Padding(
+              padding: EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  _buildDetailCard(
+                    'Employee ID',
+                    eid,
+                    Icons.badge,
+                    Colors.blue,
+                  ),
+                  SizedBox(height: 12),
+                  _buildDetailCard(
+                    'Employee Name',
+                    name,
+                    Icons.person,
+                    Colors.green,
+                  ),
+                  SizedBox(height: 12),
+                  _buildDetailCard(
+                    'Attendance Status',
+                    attendanceStatus,
+                    _getStatusIcon(attendanceStatus),
+                    _getStatusColor(attendanceStatus),
+                  ),
+                  SizedBox(height: 12),
+                  _buildDetailCard(
+                    'Check In Time',
+                    checkInTime,
+                    Icons.login,
+                    Colors.green,
+                  ),
+                  SizedBox(height: 12),
+                  _buildDetailCard(
+                    'Check Out Time',
+                    checkOutTime,
+                    Icons.logout,
+                    Colors.red,
+                  ),
+                  SizedBox(height: 12),
+                  _buildDetailCard(
+                    'Total Time Worked',
+                    formattedTime,
+                    Icons.access_time,
+                    Colors.purple,
+                  ),
+                ],
+              ),
+            ),
+
+            // Additional information if available
+            if (data.isNotEmpty) ...[
+              Padding(
+                padding: EdgeInsets.all(16),
+                child: Card(
+                  child: ExpansionTile(
+                    title: Text(
+                      'Additional Data',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    leading: Icon(Icons.info_outline),
+                    children: [
+                      Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Column(
+                          children: data.entries.map((entry) {
+                            if ([
+                              'Eid',
+                              'name',
+                              'attendance_status',
+                              'checkInTime',
+                              'checkOutTime',
+                              'formattedTime'
+                            ].contains(entry.key)) {
+                              return SizedBox.shrink();
+                            }
+                            return Padding(
+                              padding: EdgeInsets.symmetric(vertical: 4),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    flex: 2,
+                                    child: Text(
+                                      entry.key,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w500,
+                                        color: Colors.grey[700],
+                                      ),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    flex: 3,
+                                    child: Text(
+                                      entry.value.toString(),
+                                      style: TextStyle(color: Colors.grey[600]),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailCard(
+      String title, String value, IconData icon, Color color) {
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              padding: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                icon,
+                color: color,
+                size: 24,
+              ),
+            ),
+            SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _determineAttendanceStatus(Map<String, dynamic> data) {
+    if (data.containsKey('attendance_status')) {
+      String status = data['attendance_status']?.toString() ?? '';
+      if (status.isNotEmpty) return status;
+    }
+
+    if (data.containsKey('status')) {
+      String status = data['status']?.toString() ?? '';
+      String checkOut = data['checkOutTime']?.toString() ?? '';
+
+      if (status == 'checked-in' && checkOut.isEmpty) {
+        return 'Present';
+      } else if (status == 'checked-out') {
+        return 'Present';
+      }
+    }
+
+    String checkIn = data['checkInTime']?.toString() ?? '';
+    if (checkIn.isNotEmpty && checkIn != 'Not recorded') {
+      return 'Present';
+    }
+
+    return 'Absent';
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'present':
+        return Colors.green;
+      case 'halfday present':
+      case 'half day present':
+      case 'half-day present':
+        return Colors.orange;
+      case 'absent':
+        return Colors.red;
+      case 'late':
+        return Colors.amber;
+      default:
+        return Colors.blue;
+    }
+  }
+
+  IconData _getStatusIcon(String status) {
+    switch (status.toLowerCase()) {
+      case 'present':
+        return Icons.check_circle;
+      case 'halfday present':
+      case 'half day present':
+      case 'half-day present':
+        return Icons.schedule;
+      case 'absent':
+        return Icons.cancel;
+      case 'late':
+        return Icons.access_time;
+      default:
+        return Icons.info;
+    }
+  }
+}
+
+// =================== END DRILL-DOWN PAGES ===================
 
 // TrackingScreen - simplified version without location
 class TrackingScreen extends StatefulWidget {
