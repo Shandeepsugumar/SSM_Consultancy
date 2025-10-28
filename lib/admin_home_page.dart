@@ -1,4 +1,5 @@
-import 'package:consultancy/admin_waiting_for_approval.dart';
+import 'package:consultancy/admin_waiting_for_approval.dart'
+    as waiting_approval;
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -15,12 +16,12 @@ import 'package:image/image.dart' as img;
 import 'package:flutter/services.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
-import 'package:consultancy/admin_donepage.dart';
 import 'package:consultancy/loginpage.dart';
 import 'package:multi_select_flutter/multi_select_flutter.dart';
 import 'package:consultancy/admin_attendance_calendar_enhance.dart';
 import 'package:consultancy/admin_comprehensive_attendance_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'employee_names_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -265,7 +266,8 @@ class HomeScreen extends StatelessWidget {
             if (route == "UserCard") {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => UsersList()),
+                MaterialPageRoute(
+                    builder: (context) => waiting_approval.UsersList()),
               );
             } else if (route == "/activeUsers") {
               Navigator.push(
@@ -449,11 +451,115 @@ class _SchedulePageState extends State<SchedulePage> {
   List<Map<String, dynamic>> _selectedEmployees = [];
   Map<String, dynamic>? _latestSchedule;
 
+  // Status is always 'active' by default
+  final String _selectedStatus = 'active';
+
   @override
   void initState() {
     super.initState();
     _fetchEmployees();
     _fetchLatestSchedule(); // new
+
+    // Add listeners to calculate work hours automatically
+    _startTimeController.addListener(_calculateWorkHours);
+    _endTimeController.addListener(_calculateWorkHours);
+  }
+
+  @override
+  void dispose() {
+    _startTimeController.removeListener(_calculateWorkHours);
+    _endTimeController.removeListener(_calculateWorkHours);
+    _startTimeController.dispose();
+    _endTimeController.dispose();
+    _startDateController.dispose();
+    _endDateController.dispose();
+    _branchNameController.dispose();
+    _numWorkersController.dispose();
+    _totalHoursController.dispose();
+    super.dispose();
+  }
+
+  // Function to calculate work hours between start and end time
+  void _calculateWorkHours() {
+    if (_startTimeController.text.isNotEmpty &&
+        _endTimeController.text.isNotEmpty) {
+      try {
+        // Parse time strings to TimeOfDay
+        TimeOfDay startTime = _parseTimeString(_startTimeController.text);
+        TimeOfDay endTime = _parseTimeString(_endTimeController.text);
+
+        // Calculate total minutes
+        int startMinutes = startTime.hour * 60 + startTime.minute;
+        int endMinutes = endTime.hour * 60 + endTime.minute;
+
+        // Handle case where end time is next day (e.g., night shift)
+        if (endMinutes < startMinutes) {
+          endMinutes += 24 * 60; // Add 24 hours
+        }
+
+        int totalMinutes = endMinutes - startMinutes;
+
+        // Convert to hours and minutes
+        int hours = totalMinutes ~/ 60;
+        int minutes = totalMinutes % 60;
+
+        // Format the result
+        String workHours;
+        if (minutes == 0) {
+          workHours = '$hours';
+        } else {
+          double decimalHours = hours + (minutes / 60.0);
+          workHours = decimalHours.toStringAsFixed(2);
+        }
+
+        // Update the total hours field
+        _totalHoursController.text = workHours;
+
+        print(
+            '🕐 Calculated work hours: $workHours hours (Start: ${_startTimeController.text}, End: ${_endTimeController.text})');
+      } catch (e) {
+        print('⚠️ Error calculating work hours: $e');
+        // Don't clear the field in case of error, user might want to enter manually
+      }
+    }
+  }
+
+  // Helper function to parse time string (handles both 12-hour and 24-hour formats)
+  TimeOfDay _parseTimeString(String timeString) {
+    try {
+      // Remove any extra spaces
+      timeString = timeString.trim();
+
+      // Handle 12-hour format (e.g., "2:30 PM", "10:15 AM")
+      if (timeString.toUpperCase().contains('AM') ||
+          timeString.toUpperCase().contains('PM')) {
+        bool isPM = timeString.toUpperCase().contains('PM');
+        String cleanTime = timeString.replaceAll(RegExp(r'[APMapm\s]'), '');
+
+        List<String> parts = cleanTime.split(':');
+        int hour = int.parse(parts[0]);
+        int minute = parts.length > 1 ? int.parse(parts[1]) : 0;
+
+        // Convert to 24-hour format
+        if (isPM && hour != 12) {
+          hour += 12;
+        } else if (!isPM && hour == 12) {
+          hour = 0;
+        }
+
+        return TimeOfDay(hour: hour, minute: minute);
+      }
+      // Handle 24-hour format (e.g., "14:30", "09:15")
+      else {
+        List<String> parts = timeString.split(':');
+        int hour = int.parse(parts[0]);
+        int minute = parts.length > 1 ? int.parse(parts[1]) : 0;
+
+        return TimeOfDay(hour: hour, minute: minute);
+      }
+    } catch (e) {
+      throw FormatException('Invalid time format: $timeString');
+    }
   }
 
   Future<void> _fetchLatestSchedule() async {
@@ -465,27 +571,30 @@ class _SchedulePageState extends State<SchedulePage> {
 
     if (scheduleSnapshot.docs.isNotEmpty) {
       final scheduleData = scheduleSnapshot.docs.first.data();
-      final List<dynamic> assignedUIDs =
+      final List<dynamic> assignedEids =
           scheduleData['assignedEmployees'] ?? [];
 
       List<String> resolvedEmployeeNames = [];
 
-      for (var uid in assignedUIDs) {
+      for (var eid in assignedEids) {
         try {
-          final userDoc = await FirebaseFirestore.instance
+          // Query users collection by Eid field instead of document ID
+          final userQuery = await FirebaseFirestore.instance
               .collection('users')
-              .doc(uid)
+              .where('Eid', isEqualTo: eid)
               .get();
-          if (userDoc.exists && userDoc.data() != null) {
-            final data = userDoc.data() as Map<String, dynamic>;
+
+          if (userQuery.docs.isNotEmpty) {
+            final userDoc = userQuery.docs.first;
+            final data = userDoc.data();
             resolvedEmployeeNames.add(
               '${data['Eid'] ?? 'N/A'} - ${data['name'] ?? 'Unknown'}',
             );
           } else {
-            resolvedEmployeeNames.add('Unknown');
+            resolvedEmployeeNames.add('$eid - Unknown');
           }
         } catch (e) {
-          print('Error fetching user data for uid $uid: $e');
+          print('Error fetching user data for eid $eid: $e');
           resolvedEmployeeNames.add('Error loading user');
         }
       }
@@ -567,10 +676,39 @@ class _SchedulePageState extends State<SchedulePage> {
 
   Future<void> _submitSchedule() async {
     if (_formKey.currentState!.validate() && _selectedEmployees.isNotEmpty) {
-      List<String> selectedUIDs =
-          _selectedEmployees.map((e) => e['uid'].toString()).toList();
+      List<String> selectedEids =
+          _selectedEmployees.map((e) => e['Eid'].toString()).toList();
+
+      // Show loading dialog while checking for conflicts
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Text('Checking schedule conflicts...'),
+            ],
+          ),
+        ),
+      );
 
       try {
+        // Check for schedule conflicts
+        List<String> conflictingEmployees =
+            await _checkScheduleConflicts(selectedEids);
+
+        // Close loading dialog
+        Navigator.pop(context);
+
+        if (conflictingEmployees.isNotEmpty) {
+          // Show conflict dialog
+          _showConflictDialog(conflictingEmployees);
+          return;
+        }
+
+        // No conflicts, proceed with schedule creation
         await FirebaseFirestore.instance.collection('schedule').add({
           'startTime': _startTimeController.text,
           'endTime': _endTimeController.text,
@@ -579,7 +717,8 @@ class _SchedulePageState extends State<SchedulePage> {
           'branchName': _branchNameController.text,
           'numberOfWorkers': int.parse(_numWorkersController.text),
           'totalHours': _totalHoursController.text,
-          'assignedEmployees': selectedUIDs,
+          'assignedEmployees': selectedEids,
+          'status': _selectedStatus, // Use selected status
           'timestamp': FieldValue.serverTimestamp(),
         });
 
@@ -589,9 +728,16 @@ class _SchedulePageState extends State<SchedulePage> {
         _fetchLatestSchedule();
         _formKey.currentState!.reset();
         _selectedEmployees.clear();
+        // Reset worker count when form is reset
+        _numWorkersController.clear();
+        // Status remains 'active' by default
         setState(() {});
       } catch (e) {
-        print("🔥 Firestore write failed: $e");
+        // Close loading dialog if still open
+        if (Navigator.canPop(context)) {
+          Navigator.pop(context);
+        }
+        print("🔥 Firestore operation failed: $e");
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('❌ Error: $e')));
@@ -603,6 +749,296 @@ class _SchedulePageState extends State<SchedulePage> {
         ),
       );
     }
+  }
+
+  // Method to check for schedule conflicts
+  Future<List<String>> _checkScheduleConflicts(
+      List<String> selectedEids) async {
+    List<String> conflictingEmployees = [];
+
+    try {
+      // Get the new schedule details
+      DateTime newStartDate = _parseDate(_startDateController.text);
+      DateTime newEndDate = _parseDate(_endDateController.text);
+      TimeOfDay newStartTime = _parseTimeString(_startTimeController.text);
+      TimeOfDay newEndTime = _parseTimeString(_endTimeController.text);
+
+      // Query all existing schedules
+      QuerySnapshot existingSchedules =
+          await FirebaseFirestore.instance.collection('schedule').get();
+
+      for (var scheduleDoc in existingSchedules.docs) {
+        Map<String, dynamic> scheduleData =
+            scheduleDoc.data() as Map<String, dynamic>;
+
+        // Check if this schedule is already completed/done
+        String scheduleStatus = scheduleData['status']?.toString() ?? '';
+        if (scheduleStatus.toLowerCase() == 'done' ||
+            scheduleStatus.toLowerCase() == 'completed') {
+          continue; // Skip completed schedules
+        }
+
+        // Get existing schedule details
+        List<String> existingEids =
+            List<String>.from(scheduleData['assignedEmployees'] ?? []);
+        DateTime existingStartDate =
+            _parseDate(scheduleData['startDate']?.toString() ?? '');
+        DateTime existingEndDate =
+            _parseDate(scheduleData['endDate']?.toString() ?? '');
+        TimeOfDay existingStartTime =
+            _parseTimeString(scheduleData['startTime']?.toString() ?? '');
+        TimeOfDay existingEndTime =
+            _parseTimeString(scheduleData['endTime']?.toString() ?? '');
+
+        // Check for employee overlap
+        List<String> overlappingEmployees =
+            selectedEids.where((eid) => existingEids.contains(eid)).toList();
+
+        if (overlappingEmployees.isNotEmpty) {
+          // Check for date and time conflicts
+          if (_hasDateTimeConflict(
+            newStartDate,
+            newEndDate,
+            newStartTime,
+            newEndTime,
+            existingStartDate,
+            existingEndDate,
+            existingStartTime,
+            existingEndTime,
+          )) {
+            // Add conflicting employees with their names
+            for (String eid in overlappingEmployees) {
+              String employeeName = await _getEmployeeNameByEid(eid);
+              if (!conflictingEmployees.contains('$eid - $employeeName')) {
+                conflictingEmployees.add('$eid - $employeeName');
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('Error checking schedule conflicts: $e');
+      throw e;
+    }
+
+    return conflictingEmployees;
+  }
+
+  // Method to parse date string to DateTime
+  DateTime _parseDate(String dateString) {
+    try {
+      List<String> parts = dateString.split('-');
+      if (parts.length == 3) {
+        return DateTime(
+            int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+      }
+    } catch (e) {
+      print('Error parsing date: $dateString');
+    }
+    return DateTime.now();
+  }
+
+  // Method to check if there's a date and time conflict
+  bool _hasDateTimeConflict(
+    DateTime newStartDate,
+    DateTime newEndDate,
+    TimeOfDay newStartTime,
+    TimeOfDay newEndTime,
+    DateTime existingStartDate,
+    DateTime existingEndDate,
+    TimeOfDay existingStartTime,
+    TimeOfDay existingEndTime,
+  ) {
+    // Check if dates overlap
+    bool dateOverlap = !(newEndDate.isBefore(existingStartDate) ||
+        newStartDate.isAfter(existingEndDate));
+
+    if (!dateOverlap) {
+      return false; // No date overlap, no conflict
+    }
+
+    // If dates overlap, check time overlap
+    // Convert TimeOfDay to minutes for easier comparison
+    int newStartMinutes = newStartTime.hour * 60 + newStartTime.minute;
+    int newEndMinutes = newEndTime.hour * 60 + newEndTime.minute;
+    int existingStartMinutes =
+        existingStartTime.hour * 60 + existingStartTime.minute;
+    int existingEndMinutes = existingEndTime.hour * 60 + existingEndTime.minute;
+
+    // Handle overnight shifts
+    if (newEndMinutes < newStartMinutes) {
+      newEndMinutes += 24 * 60;
+    }
+    if (existingEndMinutes < existingStartMinutes) {
+      existingEndMinutes += 24 * 60;
+    }
+
+    // Check time overlap
+    bool timeOverlap = !(newEndMinutes <= existingStartMinutes ||
+        newStartMinutes >= existingEndMinutes);
+
+    return timeOverlap;
+  }
+
+  // Method to get employee name by Eid
+  Future<String> _getEmployeeNameByEid(String eid) async {
+    try {
+      QuerySnapshot userQuery = await FirebaseFirestore.instance
+          .collection('users')
+          .where('Eid', isEqualTo: eid)
+          .get();
+
+      if (userQuery.docs.isNotEmpty) {
+        Map<String, dynamic> userData =
+            userQuery.docs.first.data() as Map<String, dynamic>;
+        return userData['name'] ?? 'Unknown';
+      }
+    } catch (e) {
+      print('Error getting employee name for Eid $eid: $e');
+    }
+    return 'Unknown';
+  }
+
+  // Method to show conflict dialog
+  void _showConflictDialog(List<String> conflictingEmployees) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.warning, color: Colors.orange, size: 28),
+            SizedBox(width: 8),
+            Text(
+              'Schedule Conflict!',
+              style: TextStyle(
+                color: Colors.orange[700],
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        content: Container(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Cannot assign the following employees because they are already assigned to another work during the same time period:',
+                style: TextStyle(fontSize: 16),
+              ),
+              SizedBox(height: 16),
+              Container(
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red[200]!),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.person_off,
+                            color: Colors.red[600], size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          'Conflicting Employees:',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red[700],
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 8),
+                    ...conflictingEmployees
+                        .map((employee) => Padding(
+                              padding: EdgeInsets.symmetric(vertical: 2),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.circle,
+                                      size: 8, color: Colors.red[600]),
+                                  SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      employee,
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.red[700],
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ))
+                        .toList(),
+                  ],
+                ),
+              ),
+              SizedBox(height: 16),
+              Container(
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue[200]!),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.info, color: Colors.blue[600], size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          'Solutions:',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue[700],
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      '• Remove conflicting employees from selection\n• Choose different dates/times\n• Wait until their current work is marked as "done"',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.blue[700],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'OK',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Method to auto-update the number of workers based on selected employees
+  void _updateWorkerCount() {
+    int selectedCount = _selectedEmployees.length;
+    _numWorkersController.text = selectedCount.toString();
+
+    print(
+        '🔢 Auto-updated worker count to: $selectedCount (based on ${_selectedEmployees.length} selected employees)');
   }
 
   Widget _buildTextField({
@@ -722,17 +1158,63 @@ class _SchedulePageState extends State<SchedulePage> {
                               icon: Icons.location_city,
                             ),
                             _buildTextField(
-                              label: 'Number of Workers',
+                              label: 'Number of Workers (Auto-calculated)',
                               controller: _numWorkersController,
                               type: TextInputType.number,
                               icon: Icons.people,
                             ),
+                            if (_selectedEmployees.isNotEmpty)
+                              Padding(
+                                padding:
+                                    const EdgeInsets.only(left: 12, top: 4),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.auto_awesome,
+                                      size: 16,
+                                      color: Colors.blue,
+                                    ),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'Automatically set to ${_selectedEmployees.length} based on selected employees',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.blue,
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             _buildTextField(
-                              label: 'Total Work Hours',
+                              label: 'Total Work Hours (Auto-calculated)',
                               controller: _totalHoursController,
                               type: TextInputType.number,
                               icon: Icons.timelapse,
                             ),
+                            if (_totalHoursController.text.isNotEmpty)
+                              Padding(
+                                padding:
+                                    const EdgeInsets.only(left: 12, top: 4),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.auto_awesome,
+                                      size: 16,
+                                      color: Colors.green,
+                                    ),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'Automatically calculated from start and end time',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.green,
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             SizedBox(height: 16),
                             Text(
                               '👥 Select Employees',
@@ -760,6 +1242,8 @@ class _SchedulePageState extends State<SchedulePage> {
                                 setState(() {
                                   _selectedEmployees =
                                       values.cast<Map<String, dynamic>>();
+                                  // Auto-fill number of workers based on selected employees
+                                  _updateWorkerCount();
                                 });
                               },
                             ),
@@ -785,6 +1269,8 @@ class _SchedulePageState extends State<SchedulePage> {
                                     onDeleted: () {
                                       setState(() {
                                         _selectedEmployees.remove(e);
+                                        // Auto-update worker count when employee is removed
+                                        _updateWorkerCount();
                                       });
                                     },
                                   );
@@ -820,14 +1306,17 @@ class _SchedulePageState extends State<SchedulePage> {
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (context) => DonePage(),
+                                      builder: (context) => EmployeeNamesPage(),
                                     ),
                                   );
                                 },
-                                icon: Icon(Icons.done_all),
-                                label: Text('View Done'),
+                                icon: Icon(Icons.people, color: Colors.white),
+                                label: Text(
+                                  'Employee Names',
+                                  style: TextStyle(color: Colors.white),
+                                ),
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.green,
+                                  backgroundColor: Colors.blueAccent,
                                   padding: EdgeInsets.symmetric(
                                     horizontal: 16,
                                     vertical: 10,
@@ -836,152 +1325,6 @@ class _SchedulePageState extends State<SchedulePage> {
                                     borderRadius: BorderRadius.circular(10),
                                   ),
                                 ),
-                              ),
-                            ),
-                            SizedBox(height: 32),
-                            // Employee Eids Display Section
-                            Container(
-                              padding: EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.blue[50],
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.blue[200]!),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        Icons.badge,
-                                        color: Colors.blue[700],
-                                      ),
-                                      SizedBox(width: 8),
-                                      Text(
-                                        'All Employee Eids',
-                                        style: TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.blue[700],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  SizedBox(height: 12),
-                                  StreamBuilder<QuerySnapshot>(
-                                    stream: FirebaseFirestore.instance
-                                        .collection('users')
-                                        .snapshots(),
-                                    builder: (context, snapshot) {
-                                      if (snapshot.connectionState ==
-                                          ConnectionState.waiting) {
-                                        return Center(
-                                          child: CircularProgressIndicator(),
-                                        );
-                                      }
-
-                                      if (!snapshot.hasData ||
-                                          snapshot.data!.docs.isEmpty) {
-                                        return Text('No employees found.');
-                                      }
-
-                                      final employees = snapshot.data!.docs;
-                                      return Wrap(
-                                        spacing: 8,
-                                        runSpacing: 8,
-                                        children: employees.map((doc) {
-                                          try {
-                                            final data = doc.data()
-                                                as Map<String, dynamic>;
-                                            final eid = data['Eid'] ?? 'N/A';
-                                            final name =
-                                                data['name'] ?? 'Unknown';
-
-                                            return Container(
-                                              padding: EdgeInsets.symmetric(
-                                                horizontal: 12,
-                                                vertical: 6,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: Colors.white,
-                                                borderRadius:
-                                                    BorderRadius.circular(20),
-                                                border: Border.all(
-                                                  color: Colors.blue[300]!,
-                                                ),
-                                                boxShadow: [
-                                                  BoxShadow(
-                                                    color: Colors.blue[100]!,
-                                                    blurRadius: 2,
-                                                    offset: Offset(0, 1),
-                                                  ),
-                                                ],
-                                              ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Icon(
-                                                    Icons.person,
-                                                    size: 16,
-                                                    color: Colors.blue[600],
-                                                  ),
-                                                  SizedBox(width: 4),
-                                                  Text(
-                                                    '$eid - $name',
-                                                    style: TextStyle(
-                                                      fontSize: 12,
-                                                      fontWeight:
-                                                          FontWeight.w500,
-                                                      color: Colors.blue[700],
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            );
-                                          } catch (e) {
-                                            print(
-                                              'Error processing employee data: $e',
-                                            );
-                                            return Container(
-                                              padding: EdgeInsets.symmetric(
-                                                horizontal: 12,
-                                                vertical: 6,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: Colors.red[50],
-                                                borderRadius:
-                                                    BorderRadius.circular(20),
-                                                border: Border.all(
-                                                  color: Colors.red[300]!,
-                                                ),
-                                              ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Icon(
-                                                    Icons.error,
-                                                    size: 16,
-                                                    color: Colors.red[600],
-                                                  ),
-                                                  SizedBox(width: 4),
-                                                  Text(
-                                                    'Error loading employee',
-                                                    style: TextStyle(
-                                                      fontSize: 12,
-                                                      fontWeight:
-                                                          FontWeight.w500,
-                                                      color: Colors.red[700],
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            );
-                                          }
-                                        }).toList(),
-                                      );
-                                    },
-                                  ),
-                                ],
                               ),
                             ),
                             SizedBox(height: 24),
@@ -1019,17 +1362,14 @@ class _SchedulePageState extends State<SchedulePage> {
                                     final doc = snapshot.data!.docs[index];
                                     final data =
                                         doc.data() as Map<String, dynamic>;
-                                    final assignedUids = List<String>.from(
+                                    final assignedEids = List<String>.from(
                                       data['assignedEmployees'] ?? [],
                                     );
 
                                     return FutureBuilder<QuerySnapshot>(
                                       future: FirebaseFirestore.instance
                                           .collection('users')
-                                          .where(
-                                            FieldPath.documentId,
-                                            whereIn: assignedUids,
-                                          )
+                                          .where('Eid', whereIn: assignedEids)
                                           .get(),
                                       builder: (context, userSnapshot) {
                                         if (userSnapshot.connectionState ==
@@ -2771,31 +3111,549 @@ class ActiveUsersPage extends StatefulWidget {
 }
 
 class _ActiveUsersPageState extends State<ActiveUsersPage> {
+  List<Map<String, dynamic>> _activeUsers = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadActiveUsers();
+  }
+
+  Future<void> _loadActiveUsers() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      String todayDate = _getTodayDate();
+
+      // Get all users
+      QuerySnapshot usersSnapshot =
+          await FirebaseFirestore.instance.collection('users').get();
+
+      List<Map<String, dynamic>> activeUsers = [];
+
+      for (var userDoc in usersSnapshot.docs) {
+        Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
+        String uid = userDoc.id;
+        String eid = userData['Eid'] ?? 'N/A';
+
+        // Check if user has attendance for today
+        bool hasTodayAttendance =
+            await _checkTodayAttendance(uid, eid, todayDate);
+
+        if (hasTodayAttendance) {
+          // Get attendance details for today
+          Map<String, dynamic> attendanceData =
+              await _getTodayAttendanceDetails(uid, eid, todayDate);
+
+          activeUsers.add({
+            'uid': uid,
+            'eid': eid,
+            'name': userData['name'] ?? 'Unknown',
+            'email': userData['email'] ?? 'No email',
+            'phoneNo': userData['phoneNo'] ?? 'No phone',
+            'department': userData['department'] ?? 'Not specified',
+            'role': userData['role'] ?? 'Employee',
+            'attendanceData': attendanceData,
+          });
+        }
+      }
+
+      setState(() {
+        _activeUsers = activeUsers;
+        _isLoading = false;
+      });
+
+      print(
+          '📊 Found ${activeUsers.length} active users for today ($todayDate)');
+    } catch (e) {
+      print('❌ Error loading active users: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  String _getTodayDate() {
+    DateTime now = DateTime.now();
+    return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+  }
+
+  Future<bool> _checkTodayAttendance(
+      String uid, String eid, String todayDate) async {
+    try {
+      // Strategy 1: Check by UID
+      DocumentSnapshot uidDoc = await FirebaseFirestore.instance
+          .collection('attendance')
+          .doc(uid)
+          .collection('dates')
+          .doc(todayDate)
+          .get();
+
+      if (uidDoc.exists) {
+        return true;
+      }
+
+      // Strategy 2: Check by EID
+      DocumentSnapshot eidDoc = await FirebaseFirestore.instance
+          .collection('attendance')
+          .doc(eid)
+          .collection('dates')
+          .doc(todayDate)
+          .get();
+
+      return eidDoc.exists;
+    } catch (e) {
+      print('Error checking attendance for $uid/$eid: $e');
+      return false;
+    }
+  }
+
+  Future<Map<String, dynamic>> _getTodayAttendanceDetails(
+      String uid, String eid, String todayDate) async {
+    try {
+      // Try to get attendance data by UID first
+      DocumentSnapshot uidDoc = await FirebaseFirestore.instance
+          .collection('attendance')
+          .doc(uid)
+          .collection('dates')
+          .doc(todayDate)
+          .get();
+
+      if (uidDoc.exists) {
+        return uidDoc.data() as Map<String, dynamic>;
+      }
+
+      // Try to get attendance data by EID
+      DocumentSnapshot eidDoc = await FirebaseFirestore.instance
+          .collection('attendance')
+          .doc(eid)
+          .collection('dates')
+          .doc(todayDate)
+          .get();
+
+      if (eidDoc.exists) {
+        return eidDoc.data() as Map<String, dynamic>;
+      }
+
+      return {};
+    } catch (e) {
+      print('Error getting attendance details for $uid/$eid: $e');
+      return {};
+    }
+  }
+
+  String _getAttendanceStatus(Map<String, dynamic> attendanceData) {
+    if (attendanceData.isEmpty) return 'Unknown';
+
+    // Check explicit status
+    if (attendanceData.containsKey('attendance_status')) {
+      return attendanceData['attendance_status'].toString();
+    }
+
+    // Check general status
+    String status = attendanceData['status']?.toString() ?? '';
+    String checkOut = attendanceData['checkOutTime']?.toString() ?? '';
+
+    if (status == 'checked-in' && checkOut.isEmpty) {
+      return 'Currently Working';
+    } else if (status == 'checked-out') {
+      return 'Completed Work';
+    }
+
+    return 'Present';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Active Users'),
-        backgroundColor: Colors.green[100],
+        title: Text(
+          'Active Users',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        backgroundColor: Colors.green,
+        iconTheme: IconThemeData(color: Colors.white),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.refresh),
+            onPressed: _loadActiveUsers,
+            tooltip: 'Refresh',
+          ),
+        ],
       ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.people, size: 100, color: Colors.green),
-            SizedBox(height: 20),
-            Text(
-              "Active Users",
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+      backgroundColor: Colors.grey[100],
+      body: Column(
+        children: [
+          // Header with stats
+          Container(
+            padding: EdgeInsets.all(16),
+            color: Colors.green[50],
+            child: Row(
+              children: [
+                Icon(Icons.people, color: Colors.green[700], size: 32),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Active Users Today',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green[700],
+                        ),
+                      ),
+                      Text(
+                        'Employees who marked attendance today (${_getTodayDate()})',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.green[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.green,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '${_activeUsers.length}',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            SizedBox(height: 10),
+          ),
+
+          // User list
+          Expanded(
+            child: _isLoading
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(color: Colors.green),
+                        SizedBox(height: 16),
+                        Text('Loading active users...'),
+                      ],
+                    ),
+                  )
+                : _activeUsers.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.person_off,
+                              size: 64,
+                              color: Colors.grey,
+                            ),
+                            SizedBox(height: 16),
+                            Text(
+                              'No Active Users Today',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            Text(
+                              'No employees have marked attendance today',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[500],
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: _loadActiveUsers,
+                        child: ListView.builder(
+                          padding: EdgeInsets.all(16),
+                          itemCount: _activeUsers.length,
+                          itemBuilder: (context, index) {
+                            final user = _activeUsers[index];
+                            final attendanceData =
+                                user['attendanceData'] as Map<String, dynamic>;
+                            final attendanceStatus =
+                                _getAttendanceStatus(attendanceData);
+
+                            return Card(
+                              margin: EdgeInsets.symmetric(vertical: 6),
+                              elevation: 3,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Padding(
+                                padding: EdgeInsets.all(16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // Header with name and status
+                                    Row(
+                                      children: [
+                                        CircleAvatar(
+                                          backgroundColor: Colors.green,
+                                          radius: 24,
+                                          child: Text(
+                                            user['name'][0].toUpperCase(),
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 18,
+                                            ),
+                                          ),
+                                        ),
+                                        SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                user['name'],
+                                                style: TextStyle(
+                                                  fontSize: 18,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                              Text(
+                                                'ID: ${user['eid']}',
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  color: Colors.grey[600],
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Container(
+                                          padding: EdgeInsets.symmetric(
+                                              horizontal: 12, vertical: 6),
+                                          decoration: BoxDecoration(
+                                            color: Colors.green[100],
+                                            borderRadius:
+                                                BorderRadius.circular(20),
+                                            border: Border.all(
+                                                color: Colors.green[300]!),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.check_circle,
+                                                size: 16,
+                                                color: Colors.green[700],
+                                              ),
+                                              SizedBox(width: 4),
+                                              Text(
+                                                attendanceStatus,
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.green[700],
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+
+                                    SizedBox(height: 16),
+
+                                    // Employee details
+                                    Container(
+                                      padding: EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey[50],
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                            color: Colors.grey[200]!),
+                                      ),
+                                      child: Column(
+                                        children: [
+                                          _buildDetailRow(Icons.email, 'Email',
+                                              user['email']),
+                                          _buildDetailRow(Icons.phone, 'Phone',
+                                              user['phoneNo']),
+                                          _buildDetailRow(Icons.business,
+                                              'Department', user['department']),
+                                          _buildDetailRow(
+                                              Icons.work, 'Role', user['role']),
+                                        ],
+                                      ),
+                                    ),
+
+                                    SizedBox(height: 12),
+
+                                    // Attendance details
+                                    if (attendanceData.isNotEmpty) ...[
+                                      Container(
+                                        padding: EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green[50],
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                          border: Border.all(
+                                              color: Colors.green[200]!),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Icon(Icons.access_time,
+                                                    color: Colors.green[700],
+                                                    size: 18),
+                                                SizedBox(width: 6),
+                                                Text(
+                                                  'Today\'s Attendance',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.green[700],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            SizedBox(height: 8),
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: _buildAttendanceDetail(
+                                                    'Check In',
+                                                    attendanceData[
+                                                                'checkInTime']
+                                                            ?.toString() ??
+                                                        'Not recorded',
+                                                    Icons.login,
+                                                  ),
+                                                ),
+                                                SizedBox(width: 12),
+                                                Expanded(
+                                                  child: _buildAttendanceDetail(
+                                                    'Check Out',
+                                                    attendanceData['checkOutTime']
+                                                                ?.toString()
+                                                                .isEmpty ==
+                                                            true
+                                                        ? 'Still working'
+                                                        : attendanceData[
+                                                                    'checkOutTime']
+                                                                ?.toString() ??
+                                                            'Not recorded',
+                                                    Icons.logout,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            if (attendanceData['formattedTime']
+                                                    ?.toString()
+                                                    .isNotEmpty ==
+                                                true) ...[
+                                              SizedBox(height: 8),
+                                              _buildAttendanceDetail(
+                                                'Total Work Time',
+                                                attendanceData['formattedTime']
+                                                    .toString(),
+                                                Icons.timer,
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: Colors.grey[600]),
+          SizedBox(width: 8),
+          SizedBox(
+            width: 80,
+            child: Text(
+              '$label:',
+              style: TextStyle(
+                fontWeight: FontWeight.w500,
+                color: Colors.grey[700],
+                fontSize: 13,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAttendanceDetail(String label, String value, IconData icon) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 14, color: Colors.green[600]),
+            SizedBox(width: 4),
             Text(
-              "Feature available in next update",
-              style: TextStyle(fontSize: 16, color: Colors.grey),
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: Colors.green[700],
+              ),
             ),
           ],
         ),
-      ),
+        SizedBox(height: 2),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+            color: Colors.black87,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -2807,46 +3665,609 @@ class InactiveUsersPage extends StatefulWidget {
 }
 
 class _InactiveUsersPageState extends State<InactiveUsersPage> {
+  List<Map<String, dynamic>> _inactiveUsers = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInactiveUsers();
+  }
+
+  Future<void> _loadInactiveUsers() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      String todayDate = _getTodayDate();
+
+      // Get all users
+      QuerySnapshot usersSnapshot =
+          await FirebaseFirestore.instance.collection('users').get();
+
+      List<Map<String, dynamic>> inactiveUsers = [];
+
+      for (var userDoc in usersSnapshot.docs) {
+        Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
+        String uid = userDoc.id;
+        String eid = userData['Eid'] ?? 'N/A';
+
+        // Check if user has attendance for today
+        bool hasTodayAttendance =
+            await _checkTodayAttendance(uid, eid, todayDate);
+
+        if (!hasTodayAttendance) {
+          // Get latest attendance for additional info
+          Map<String, dynamic> latestAttendance =
+              await _getLatestAttendance(uid, eid);
+
+          inactiveUsers.add({
+            'uid': uid,
+            'eid': eid,
+            'name': userData['name'] ?? 'Unknown',
+            'email': userData['email'] ?? 'No email',
+            'phoneNo': userData['phoneNo'] ?? 'No phone',
+            'department': userData['department'] ?? 'Not specified',
+            'role': userData['role'] ?? 'Employee',
+            'latestAttendance': latestAttendance,
+          });
+        }
+      }
+
+      setState(() {
+        _inactiveUsers = inactiveUsers;
+        _isLoading = false;
+      });
+
+      print(
+          '📊 Found ${inactiveUsers.length} inactive users for today ($todayDate)');
+    } catch (e) {
+      print('❌ Error loading inactive users: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  String _getTodayDate() {
+    DateTime now = DateTime.now();
+    return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+  }
+
+  Future<bool> _checkTodayAttendance(
+      String uid, String eid, String todayDate) async {
+    try {
+      // Strategy 1: Check by UID
+      DocumentSnapshot uidDoc = await FirebaseFirestore.instance
+          .collection('attendance')
+          .doc(uid)
+          .collection('dates')
+          .doc(todayDate)
+          .get();
+
+      if (uidDoc.exists) {
+        return true;
+      }
+
+      // Strategy 2: Check by EID
+      DocumentSnapshot eidDoc = await FirebaseFirestore.instance
+          .collection('attendance')
+          .doc(eid)
+          .collection('dates')
+          .doc(todayDate)
+          .get();
+
+      return eidDoc.exists;
+    } catch (e) {
+      print('Error checking attendance for $uid/$eid: $e');
+      return false;
+    }
+  }
+
+  Future<Map<String, dynamic>> _getLatestAttendance(
+      String uid, String eid) async {
+    try {
+      Map<String, dynamic> latestData = {
+        'lastAttendanceDate': 'Never',
+        'daysSinceLastAttendance': 'Unknown',
+      };
+
+      // Try to get latest attendance by UID
+      QuerySnapshot uidSnapshot = await FirebaseFirestore.instance
+          .collection('attendance')
+          .doc(uid)
+          .collection('dates')
+          .orderBy(FieldPath.documentId, descending: true)
+          .limit(1)
+          .get();
+
+      if (uidSnapshot.docs.isNotEmpty) {
+        String lastDate = uidSnapshot.docs.first.id;
+        latestData['lastAttendanceDate'] = lastDate;
+        latestData['daysSinceLastAttendance'] = _calculateDaysSince(lastDate);
+        latestData['lastAttendanceData'] =
+            uidSnapshot.docs.first.data() as Map<String, dynamic>;
+        return latestData;
+      }
+
+      // Try to get latest attendance by EID
+      QuerySnapshot eidSnapshot = await FirebaseFirestore.instance
+          .collection('attendance')
+          .doc(eid)
+          .collection('dates')
+          .orderBy(FieldPath.documentId, descending: true)
+          .limit(1)
+          .get();
+
+      if (eidSnapshot.docs.isNotEmpty) {
+        String lastDate = eidSnapshot.docs.first.id;
+        latestData['lastAttendanceDate'] = lastDate;
+        latestData['daysSinceLastAttendance'] = _calculateDaysSince(lastDate);
+        latestData['lastAttendanceData'] =
+            eidSnapshot.docs.first.data() as Map<String, dynamic>;
+      }
+
+      return latestData;
+    } catch (e) {
+      print('Error getting latest attendance for $uid/$eid: $e');
+      return {
+        'lastAttendanceDate': 'Error',
+        'daysSinceLastAttendance': 'Unknown',
+      };
+    }
+  }
+
+  String _calculateDaysSince(String dateString) {
+    try {
+      List<String> parts = dateString.split('-');
+      if (parts.length != 3) return 'Unknown';
+
+      DateTime lastDate = DateTime(
+        int.parse(parts[0]),
+        int.parse(parts[1]),
+        int.parse(parts[2]),
+      );
+
+      DateTime today = DateTime.now();
+      DateTime todayDateOnly = DateTime(today.year, today.month, today.day);
+
+      int daysDifference = todayDateOnly.difference(lastDate).inDays;
+
+      if (daysDifference == 0) {
+        return 'Today';
+      } else if (daysDifference == 1) {
+        return '1 day ago';
+      } else {
+        return '$daysDifference days ago';
+      }
+    } catch (e) {
+      return 'Unknown';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Inactive Users'),
-        backgroundColor: Colors.red[100],
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.people_outline, size: 100, color: Colors.red),
-            SizedBox(height: 20),
-            Text(
-              "Inactive Users",
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            SizedBox(height: 10),
-            Text(
-              "Feature available in next update",
-              style: TextStyle(fontSize: 16, color: Colors.grey),
-            ),
-          ],
+        title: Text(
+          'Inactive Users',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+          ),
         ),
+        backgroundColor: Colors.red,
+        iconTheme: IconThemeData(color: Colors.white),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.refresh),
+            onPressed: _loadInactiveUsers,
+            tooltip: 'Refresh',
+          ),
+        ],
+      ),
+      backgroundColor: Colors.grey[100],
+      body: Column(
+        children: [
+          // Header with stats
+          Container(
+            padding: EdgeInsets.all(16),
+            color: Colors.red[50],
+            child: Row(
+              children: [
+                Icon(Icons.people_outline, color: Colors.red[700], size: 32),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Inactive Users Today',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.red[700],
+                        ),
+                      ),
+                      Text(
+                        'Employees who haven\'t marked attendance today (${_getTodayDate()})',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.red[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '${_inactiveUsers.length}',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // User list
+          Expanded(
+            child: _isLoading
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(color: Colors.red),
+                        SizedBox(height: 16),
+                        Text('Loading inactive users...'),
+                      ],
+                    ),
+                  )
+                : _inactiveUsers.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.people,
+                              size: 64,
+                              color: Colors.grey,
+                            ),
+                            SizedBox(height: 16),
+                            Text(
+                              'All Users Are Active!',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            Text(
+                              'All employees have marked attendance today',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[500],
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: _loadInactiveUsers,
+                        child: ListView.builder(
+                          padding: EdgeInsets.all(16),
+                          itemCount: _inactiveUsers.length,
+                          itemBuilder: (context, index) {
+                            final user = _inactiveUsers[index];
+                            final latestAttendance = user['latestAttendance']
+                                as Map<String, dynamic>;
+
+                            return Card(
+                              margin: EdgeInsets.symmetric(vertical: 6),
+                              elevation: 3,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Padding(
+                                padding: EdgeInsets.all(16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // Header with name and status
+                                    Row(
+                                      children: [
+                                        CircleAvatar(
+                                          backgroundColor: Colors.red,
+                                          radius: 24,
+                                          child: Text(
+                                            user['name'][0].toUpperCase(),
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 18,
+                                            ),
+                                          ),
+                                        ),
+                                        SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                user['name'],
+                                                style: TextStyle(
+                                                  fontSize: 18,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                              Text(
+                                                'ID: ${user['eid']}',
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  color: Colors.grey[600],
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Container(
+                                          padding: EdgeInsets.symmetric(
+                                              horizontal: 12, vertical: 6),
+                                          decoration: BoxDecoration(
+                                            color: Colors.red[100],
+                                            borderRadius:
+                                                BorderRadius.circular(20),
+                                            border: Border.all(
+                                                color: Colors.red[300]!),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.cancel,
+                                                size: 16,
+                                                color: Colors.red[700],
+                                              ),
+                                              SizedBox(width: 4),
+                                              Text(
+                                                'Absent',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.red[700],
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+
+                                    SizedBox(height: 16),
+
+                                    // Employee details
+                                    Container(
+                                      padding: EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey[50],
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                            color: Colors.grey[200]!),
+                                      ),
+                                      child: Column(
+                                        children: [
+                                          _buildDetailRow(Icons.email, 'Email',
+                                              user['email']),
+                                          _buildDetailRow(Icons.phone, 'Phone',
+                                              user['phoneNo']),
+                                          _buildDetailRow(Icons.business,
+                                              'Department', user['department']),
+                                          _buildDetailRow(
+                                              Icons.work, 'Role', user['role']),
+                                        ],
+                                      ),
+                                    ),
+
+                                    SizedBox(height: 12),
+
+                                    // Last attendance details
+                                    Container(
+                                      padding: EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.orange[50],
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                            color: Colors.orange[200]!),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Icon(Icons.history,
+                                                  color: Colors.orange[700],
+                                                  size: 18),
+                                              SizedBox(width: 6),
+                                              Text(
+                                                'Last Attendance',
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.orange[700],
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          SizedBox(height: 8),
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child:
+                                                    _buildLastAttendanceDetail(
+                                                  'Date',
+                                                  latestAttendance[
+                                                          'lastAttendanceDate'] ??
+                                                      'Never',
+                                                  Icons.calendar_today,
+                                                ),
+                                              ),
+                                              SizedBox(width: 12),
+                                              Expanded(
+                                                child:
+                                                    _buildLastAttendanceDetail(
+                                                  'Since',
+                                                  latestAttendance[
+                                                          'daysSinceLastAttendance'] ??
+                                                      'Unknown',
+                                                  Icons.access_time,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+
+                                          // Show last attendance data if available
+                                          if (latestAttendance.containsKey(
+                                              'lastAttendanceData')) ...[
+                                            SizedBox(height: 8),
+                                            Divider(color: Colors.orange[200]),
+                                            SizedBox(height: 4),
+                                            _buildLastWorkDetails(
+                                                latestAttendance[
+                                                        'lastAttendanceData']
+                                                    as Map<String, dynamic>),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+          ),
+        ],
       ),
     );
   }
-}
 
-// UsersList class for admin management
-class UsersList extends StatefulWidget {
-  @override
-  _UsersListState createState() => _UsersListState();
-}
+  Widget _buildDetailRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: Colors.grey[600]),
+          SizedBox(width: 8),
+          SizedBox(
+            width: 80,
+            child: Text(
+              '$label:',
+              style: TextStyle(
+                fontWeight: FontWeight.w500,
+                color: Colors.grey[700],
+                fontSize: 13,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-class _UsersListState extends State<UsersList> {
-  // Implementation here
-  Widget build(BuildContext context) {
-    return Scaffold(
-        appBar: AppBar(title: Text('Users List')),
-        body: Center(child: Text('Users List')));
+  Widget _buildLastAttendanceDetail(String label, String value, IconData icon) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 14, color: Colors.orange[600]),
+            SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: Colors.orange[700],
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: 2),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+            color: Colors.black87,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLastWorkDetails(Map<String, dynamic> attendanceData) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Last Work Session:',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: Colors.orange[700],
+          ),
+        ),
+        SizedBox(height: 4),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'In: ${attendanceData['checkInTime']?.toString() ?? 'Not recorded'}',
+                style: TextStyle(fontSize: 11, color: Colors.black87),
+              ),
+            ),
+            Expanded(
+              child: Text(
+                'Out: ${attendanceData['checkOutTime']?.toString().isEmpty == true ? 'Not recorded' : attendanceData['checkOutTime']?.toString() ?? 'Not recorded'}',
+                style: TextStyle(fontSize: 11, color: Colors.black87),
+              ),
+            ),
+          ],
+        ),
+        if (attendanceData['formattedTime']?.toString().isNotEmpty == true) ...[
+          SizedBox(height: 2),
+          Text(
+            'Duration: ${attendanceData['formattedTime'].toString()}',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              color: Colors.black87,
+            ),
+          ),
+        ],
+      ],
+    );
   }
 }
