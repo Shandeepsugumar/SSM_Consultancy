@@ -53,60 +53,83 @@ class _AdminComprehensiveAttendanceScreenState
     try {
       print('Loading all employees with attendance data...');
 
-      // Get all attendance documents - document IDs are Firebase UIDs
-      // Structure: attendance/{UserUid}/dates/{Date}
+      // First, get all attendance documents to see what document names exist
       QuerySnapshot attendanceSnapshot =
           await FirebaseFirestore.instance.collection('attendance').get();
 
       print('Found ${attendanceSnapshot.docs.length} attendance documents');
-      print('Database structure: attendance/{UserUid}/dates/{Date}');
+      print(
+          'Attendance document IDs: ${attendanceSnapshot.docs.map((doc) => doc.id).toList()}');
+
+      // Get all users from the users collection
+      QuerySnapshot usersSnapshot =
+          await FirebaseFirestore.instance.collection('users').get();
+
+      print('Found ${usersSnapshot.docs.length} users in the database');
+      print('User UIDs: ${usersSnapshot.docs.map((doc) => doc.id).toList()}');
 
       List<Map<String, dynamic>> employeeList = [];
 
+      // Process each attendance document
       for (QueryDocumentSnapshot attendanceDoc in attendanceSnapshot.docs) {
-        String firebaseUid = attendanceDoc.id; // This is the Firebase UID
-        print('Processing attendance for Firebase UID: $firebaseUid');
+        String attendanceDocId = attendanceDoc.id;
+        print('Processing attendance document: $attendanceDocId');
 
-        // Load attendance records and get EID from the subcollection
-        Map<String, dynamic> attendanceData =
-            await _loadEmployeeAttendanceRecordsWithEid(firebaseUid);
+        try {
+          // Load attendance records for this document
+          Map<String, dynamic> attendanceData =
+              await _loadEmployeeAttendanceRecordsWithEid(attendanceDocId);
 
-        print(
-            'Attendance data loaded - EID: ${attendanceData['eid']}, Name: ${attendanceData['name']}, Records: ${attendanceData['records'].length}');
-
-        if (attendanceData['eid'] != null) {
-          // Get user data using the Firebase UID
-          DocumentSnapshot userDoc = await FirebaseFirestore.instance
-              .collection('users')
-              .doc(firebaseUid)
-              .get();
-
-          Map<String, dynamic> userData;
-          String userName = 'Unknown';
-          String userEmail = 'N/A';
-          String userDepartment = 'N/A';
-          String? profileImageUrl;
-          String? profilePicBinary;
-
-          if (userDoc.exists) {
-            userData = userDoc.data() as Map<String, dynamic>;
-            userName = userData['name'] ?? 'Unknown';
-            userEmail = userData['email'] ?? 'N/A';
-            userDepartment = userData['department'] ?? 'N/A';
-            profileImageUrl = userData['profileImageUrl'];
-            profilePicBinary = userData['profilePicBinary'];
-            print('User document found for $firebaseUid: $userName');
-          } else {
-            // If user document doesn't exist, use name from attendance data
-            userName = attendanceData['name'] ?? 'Unknown';
-            print(
-                'User document not found for $firebaseUid, using name from attendance: $userName');
+          if (attendanceData['records'].isEmpty) {
+            print('No attendance records found for document: $attendanceDocId');
+            continue; // Skip if no attendance records
           }
 
+          // Extract name and Eid from the first attendance record
+          String name = attendanceData['name']?.toString() ?? 'Unknown';
+          String eid = attendanceData['eid']?.toString() ?? 'N/A';
+
+          print(
+              'Processing employee: $name (EID: $eid) from document: $attendanceDocId');
+
+          // Try to find matching user data
+          Map<String, dynamic>? userData;
+          String? userUID;
+
+          // First try to find by matching the document ID with a user UID
+          for (QueryDocumentSnapshot userDoc in usersSnapshot.docs) {
+            if (userDoc.id == attendanceDocId) {
+              userUID = userDoc.id;
+              userData = userDoc.data() as Map<String, dynamic>;
+              break;
+            }
+          }
+
+          // If not found by UID, try to find by EID
+          if (userData == null) {
+            for (QueryDocumentSnapshot userDoc in usersSnapshot.docs) {
+              Map<String, dynamic> user =
+                  userDoc.data() as Map<String, dynamic>;
+              if (user['Eid']?.toString() == eid) {
+                userUID = userDoc.id;
+                userData = user;
+                break;
+              }
+            }
+          }
+
+          // Use user data if found, otherwise use attendance data
+          String finalName = userData?['name']?.toString() ?? name;
+          String finalEid = userData?['Eid']?.toString() ?? eid;
+          String userEmail = userData?['email']?.toString() ?? 'N/A';
+          String userDepartment = userData?['department']?.toString() ?? 'N/A';
+          String? profileImageUrl = userData?['profileImageUrl'];
+          String? profilePicBinary = userData?['profilePicBinary'];
+
           employeeList.add({
-            'employeeId': firebaseUid, // Use Firebase UID as employee ID
-            'eid': attendanceData['eid'],
-            'name': userName,
+            'employeeId': userUID ?? attendanceDocId,
+            'eid': finalEid,
+            'name': finalName,
             'email': userEmail,
             'department': userDepartment,
             'profileImageUrl': profileImageUrl,
@@ -116,6 +139,11 @@ class _AdminComprehensiveAttendanceScreenState
             'halfDays': attendanceData['halfDays'],
             'absentDays': attendanceData['absentDays'],
           });
+
+          print(
+              'Loaded employee: $finalName ($finalEid) - Present: ${attendanceData['presentDays']}, Half Day: ${attendanceData['halfDays']}, Absent: ${attendanceData['absentDays']}');
+        } catch (e) {
+          print('Error processing attendance document $attendanceDocId: $e');
         }
       }
 
@@ -135,18 +163,18 @@ class _AdminComprehensiveAttendanceScreenState
   }
 
   Future<Map<String, dynamic>> _loadEmployeeAttendanceRecordsWithEid(
-      String firebaseUid) async {
+      String userUID) async {
     try {
       // Get attendance from the structure: attendance/{UserUid}/dates/{Date}
       QuerySnapshot dateSnapshot = await FirebaseFirestore.instance
           .collection('attendance')
-          .doc(firebaseUid)
+          .doc(userUID)
           .collection('dates')
           .orderBy(FieldPath.documentId, descending: true)
           .get();
 
       print(
-          'Found ${dateSnapshot.docs.length} date records for user: $firebaseUid');
+          'Found ${dateSnapshot.docs.length} date records for user: $userUID');
 
       List<Map<String, dynamic>> records = [];
       String? eid;
@@ -159,7 +187,7 @@ class _AdminComprehensiveAttendanceScreenState
         Map<String, dynamic> data = dateDoc.data() as Map<String, dynamic>;
         String dateId = dateDoc.id;
 
-        print('Processing date: $dateId for user: $firebaseUid');
+        print('Processing date: $dateId for user: $userUID');
         print('Date data fields: ${data.keys.toList()}');
 
         // Get EID from the first record (field name is 'Eid' not 'eid')
@@ -226,7 +254,7 @@ class _AdminComprehensiveAttendanceScreenState
         'absentDays': absentDays,
       };
     } catch (e) {
-      print('Error loading attendance records for $firebaseUid: $e');
+      print('Error loading attendance records for $userUID: $e');
       return {
         'eid': null,
         'name': null,
@@ -352,7 +380,7 @@ class _AdminComprehensiveAttendanceScreenState
     }
 
     List<Map<String, dynamic>> attendanceRecords =
-        employee['attendanceRecords'];
+        List<Map<String, dynamic>>.from(employee['attendanceRecords'] ?? []);
     int presentDays = employee['presentDays'];
     int halfDays = employee['halfDays'];
     int absentDays = employee['absentDays'];

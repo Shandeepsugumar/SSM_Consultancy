@@ -1,135 +1,145 @@
-// Updated Firestore Security Rules for Consultancy App
-// Copy these rules to your Firebase Console -> Firestore Database -> Rules
-
+// Firestore Security Rules for Consultancy App - Corrected Version
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Users collection - contains user profile data
-    match /users/{userId} {
-      // Allow read/write access to authenticated users for their own document
-      allow read, write: if request.auth != null && 
-        (request.auth.uid == userId || 
-         resource.data.firebaseUid == request.auth.uid ||
-         isAdminUser());
-      
-      // Allow admin to read all user documents
-      allow read: if request.auth != null && isAdminUser();
+
+    // Helpers
+    function isSignedIn() {
+      return request.auth != null;
     }
-    
-    // UID Mapping collection - maps Firebase UIDs to custom employee IDs
+
+    // Admins collection is uppercase in code: collection("Admins")
+    function isAdmin() {
+      return isSignedIn() &&
+             exists(/databases/$(database)/documents/Admins/$(request.auth.uid));
+    }
+
+    // Resolve the employee's custom UID/EID from uid_mapping/{auth.uid}
+    function hasUidMapping() {
+      return isSignedIn() &&
+             exists(/databases/$(database)/documents/uid_mapping/$(request.auth.uid));
+    }
+
+    function getCustomUid() {
+      return hasUidMapping()
+        ? get(/databases/$(database)/documents/uid_mapping/$(request.auth.uid)).data.customUid
+        : request.auth.uid; // fallback if mapping missing
+    }
+
+    // Helper to check if document ID matches user's Firebase UID or EID
+    function isOwnLocationDoc(docId) {
+      return isSignedIn() && (
+        // Document ID is the user's Firebase UID
+        docId == request.auth.uid ||
+        // Document ID is the user's mapped EID
+        docId == getCustomUid()
+      );
+    }
+
+    // COLLECTION RULES
+
+    // Admins
+    match /Admins/{adminUid} {
+      // Admin can read own admin record
+      allow read: if isSignedIn() && request.auth.uid == adminUid;
+      
+      // Only existing admins can create/update/delete Admins documents
+      allow create: if isAdmin() || (isSignedIn() && request.auth.uid == adminUid);
+      allow update, delete: if isAdmin();
+    }
+
+    // Users collection - FIXED: Ensure admins can read all users
+    match /users/{firebaseUid} {
+      // Allow unauthenticated reads for login queries (email/phone lookup)
+      allow read: if true;
+      
+      // The owner (Firebase UID) can write their own record
+      allow write: if isSignedIn() && request.auth.uid == firebaseUid;
+
+      // Admins can read/write all users - EXPLICITLY ALLOWED
+      allow read, write: if isAdmin();
+    }
+
+    // UID Mapping collection
     match /uid_mapping/{firebaseUid} {
-      // Allow read/write access to authenticated users for their own mapping
-      allow read, write: if request.auth != null && 
-        (request.auth.uid == firebaseUid || isAdminUser());
+      // Allow reading uid_mapping for login flow
+      allow read: if isSignedIn();
+      
+      // Allow creating uid_mapping during login
+      allow create: if isSignedIn() && request.auth.uid == firebaseUid;
+      
+      // Admins can manage uid_mapping
+      allow write: if isAdmin();
     }
-    
-    // Live Locations collection - stores real-time location data
-    match /live_locations/{eid} {
-      // Allow authenticated users to read/write their own location
-      allow read, write: if request.auth != null && 
-        (isOwnerOfEid(eid) || isAdminUser());
-      
-      // Allow admin to read all locations
-      allow read: if request.auth != null && isAdminUser();
-    }
-    
-    // Schedule collection - employee work schedules
-    match /schedule/{scheduleId} {
-      // Allow authenticated users to read their own schedules
-      allow read: if request.auth != null && 
-        (resource.data.employeeId == getCurrentEmployeeId() || isAdminUser());
-      
-      // Allow admin to read/write all schedules
-      allow read, write: if request.auth != null && isAdminUser();
-    }
-    
-    // Attendance collection - employee attendance records
-    match /attendance/{eid} {
-      // Allow authenticated users to read/write their own attendance
-      allow read, write: if request.auth != null && 
-        (isOwnerOfEid(eid) || isAdminUser());
-      
-      // Allow admin to read all attendance records
-      allow read: if request.auth != null && isAdminUser();
-      
-      // Allow access to subcollections (dates)
-      match /dates/{date} {
-        allow read, write: if request.auth != null && 
-          (isOwnerOfEid(eid) || isAdminUser());
+
+    // Attendance (keyed by Firebase UID) - FIXED: More explicit rules
+    match /attendance/{firebaseUid} {
+      // Owner can read/write their own attendance
+      allow read, write: if isSignedIn() && request.auth.uid == firebaseUid;
+
+      // Admins can read/write all attendance - EXPLICITLY ALLOWED
+      allow read, write: if isAdmin();
+
+      // Dates subcollection
+      match /dates/{dateId} {
+        // Owner can read/write their own attendance dates
+        allow read, write: if isSignedIn() && request.auth.uid == firebaseUid;
+        
+        // Admins can read/write all attendance dates - EXPLICITLY ALLOWED
+        allow read, write: if isAdmin();
       }
     }
-    
-    // Salary Records collection - employee salary information
-    match /salary_records/{salaryId} {
-      // Allow authenticated users to read their own salary records
-      allow read: if request.auth != null && 
-        (resource.data.employeeId == getCurrentEmployeeId() || isAdminUser());
-      
-      // Allow admin to read/write all salary records
-      allow read, write: if request.auth != null && isAdminUser();
+
+    // Live Locations - Handle both Firebase UID and EID document patterns
+    match /live_locations/{docId} {
+      // Owner can read/write their own location
+      allow read, write: if isOwnLocationDoc(docId);
+
+      // Admins can read/write all live locations
+      allow read, write: if isAdmin();
     }
-    
-    // Admin collection - for admin management
-    match /admins/{adminId} {
-      // Only allow admin access
-      allow read, write: if request.auth != null && isAdminUser();
+
+    // Schedule (admin-managed; employees read)
+    match /schedule/{scheduleId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
     }
-    
-    // Helper Functions
-    function isAdminUser() {
-      // Check if user is admin - you can customize this logic
-      return request.auth.token.email == 'admin@yourcompany.com' ||
-             exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+
+    // Salary Records (keyed by EID)
+    match /salary_records/{eid} {
+      // Owner can read own salary
+      allow read: if isSignedIn() && getCustomUid() == eid;
+
+      // Admins can read/write all salary records
+      allow read, write: if isAdmin();
     }
-    
-    function getCurrentEmployeeId() {
-      // Get current user's employee ID from uid_mapping
-      return get(/databases/$(database)/documents/uid_mapping/$(request.auth.uid)).data.customUid;
+
+    // Location tracking records
+    match /location_tracking/{docId} {
+      // Owner can read/write only when eid matches their mapping
+      allow read: if isSignedIn() &&
+                  resource.data.eid == getCustomUid();
+
+      allow create: if isSignedIn() &&
+                    request.resource.data.eid == getCustomUid();
+
+      allow update: if isSignedIn() &&
+                    resource.data.eid == getCustomUid() &&
+                    request.resource.data.eid == getCustomUid();
+
+      // Admin full access
+      allow read, write: if isAdmin();
     }
-    
-    function getCurrentEid() {
-      // Get current user's Eid from users collection using Firebase UID
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.Eid;
+
+    // Employee lookup by email
+    match /employee_lookup/{email} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
     }
-    
-    function isOwnerOfEid(eid) {
-      // Check if the current user owns this Eid
-      return getCurrentEid() == eid;
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
-
-// Example Data Structure for live_locations collection:
-// Document ID: Firebase UID (from Eid field in users collection)
-// Document Data:
-// {
-//   "employeeId": "SSM023",
-//   "Eid": "firebase_uid_here",
-//   "name": "John Doe", 
-//   "email": "john@example.com",
-//   "mobile": "+1234567890",
-//   "latitude": 12.9716,
-//   "longitude": 77.5946,
-//   "timestamp": firestore_server_timestamp,
-//   "lastUpdate": "2025-10-05T10:30:00.000Z",
-//   "accuracy": 5.0,
-//   "altitude": 920.0,
-//   "speed": 0.0,
-//   "status": "active" // or "background"
-// }
-//
-// Example Data Structure for attendance collection:
-// Document ID: Firebase UID (from Eid field in users collection)
-// Subcollection: dates/YYYY-MM-DD
-// Document Data:
-// {
-//   "employeeId": "SSM023",
-//   "Eid": "firebase_uid_here",
-//   "name": "John Doe",
-//   "checkInTime": "2025-10-05T09:00:00.000Z",
-//   "checkOutTime": "2025-10-05T18:00:00.000Z",
-//   "formattedTime": "09'hrs':00'min':00'sec'",
-//   "currentDate": "2025-10-05",
-//   "status": "checked-out"
-// }
