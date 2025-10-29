@@ -53,7 +53,8 @@ service cloud.firestore {
     match /users/{eid} {
       // CRITICAL: Allow anyone to read users collection for login queries (email/phone lookup)
       // This is needed because login queries run BEFORE user authentication
-      allow read: if true; // Allow unauthenticated reads for login flow
+      // allow read covers both document reads AND collection queries
+      allow read: if true; // Allow unauthenticated reads for login flow (both document and queries)
       
       // The owner (mapped EID) can write their own record
       allow write: if isSignedIn() && getCustomUid() == eid;

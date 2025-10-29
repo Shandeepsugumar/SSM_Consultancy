@@ -21,6 +21,7 @@ import 'package:multi_select_flutter/multi_select_flutter.dart';
 import 'package:consultancy/admin_attendance_calendar_enhance.dart';
 import 'package:consultancy/admin_comprehensive_attendance_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'employee_names_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -66,12 +67,7 @@ class _HomePageState extends State<HomePage> {
             fontWeight: FontWeight.bold,
           ),
         ),
-        leading: _selectedIndex == 0
-            ? null
-            : IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
-                onPressed: () => setState(() => _selectedIndex = 0),
-              ),
+        automaticallyImplyLeading: false,
         actions: [
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.white),
@@ -301,54 +297,191 @@ class _DashboardPageState extends State<DashboardPage> {
   String? _profilePicBinary;
   Uint8List? _profileImageBytes;
 
+  // Cache admin data to avoid repeated fetches
+  static Map<String, dynamic>? _cachedAdminData;
+  static String? _cachedUserId;
+
   @override
   void initState() {
     super.initState();
-    fetchUserName();
+    _loadAdminData();
+  }
+
+  Future<void> _loadAdminData() async {
+    User? user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      setState(() {
+        _isLoading = false;
+      });
+      return;
+    }
+
+    // Check if we have cached data for this user
+    if (_cachedAdminData != null && _cachedUserId == user.uid) {
+      _useCachedData();
+      return;
+    }
+
+    await fetchUserName();
+  }
+
+  void _useCachedData() {
+    setState(() {
+      userData = _cachedAdminData;
+      _profileImageUrl = userData!["profileImageUrl"];
+      _profilePicBinary = userData!["profilePicBinary"];
+
+      if (_profilePicBinary != null && _profilePicBinary!.isNotEmpty) {
+        _decodeProfileImage();
+      }
+      _isLoading = false;
+    });
+  }
+
+  Future<void> _decodeProfileImage() async {
+    if (_profilePicBinary != null && _profilePicBinary!.isNotEmpty) {
+      try {
+        // Decode base64 in a separate isolate/compute to avoid blocking UI
+        _profileImageBytes = base64Decode(_profilePicBinary!);
+      } catch (e) {
+        print("Error decoding base64: $e");
+      }
+    }
   }
 
   Future<void> fetchUserName() async {
     User? user = FirebaseAuth.instance.currentUser;
     if (user == null) {
+      setState(() {
+        _isLoading = false;
+      });
       return;
     }
 
-    DocumentSnapshot doc = await FirebaseFirestore.instance
-        .collection("Admins")
-        .doc(user.uid)
-        .get();
+    try {
+      print("📥 Fetching admin data for: ${user.uid}");
 
-    if (doc.exists) {
-      setState(() {
-        userData = doc.data() as Map<String, dynamic>;
-        _profileImageUrl = userData!["profileImageUrl"];
-        _profilePicBinary = userData!["profilePicBinary"];
-
-        if (_profilePicBinary != null && _profilePicBinary!.isNotEmpty) {
-          try {
-            _profileImageBytes = base64Decode(_profilePicBinary!);
-          } catch (e) {
-            print("Error decoding base64: $e");
-          }
-        }
-        _isLoading = false;
+      // Add timeout to prevent indefinite loading
+      DocumentSnapshot doc = await FirebaseFirestore.instance
+          .collection("Admins")
+          .doc(user.uid)
+          .get(GetOptions(source: Source.cache)) // Try cache first
+          .timeout(Duration(seconds: 3))
+          .catchError((e) async {
+        print("⚠️ Cache miss, fetching from server...");
+        // If cache fails, fetch from server with longer timeout
+        return await FirebaseFirestore.instance
+            .collection("Admins")
+            .doc(user.uid)
+            .get(GetOptions(source: Source.server))
+            .timeout(Duration(seconds: 10));
       });
-    } else {
+
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+
+        // Cache the data
+        _cachedAdminData = data;
+        _cachedUserId = user.uid;
+
+        print("✅ Admin data loaded successfully");
+
+        setState(() {
+          userData = data;
+          _profileImageUrl = userData!["profileImageUrl"];
+          _profilePicBinary = userData!["profilePicBinary"];
+          _isLoading = false;
+        });
+
+        // Decode image asynchronously to avoid blocking UI
+        if (_profilePicBinary != null && _profilePicBinary!.isNotEmpty) {
+          _decodeProfileImageAsync();
+        }
+      } else {
+        print("❌ Admin document not found for user: ${user.uid}");
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print("❌ Error fetching admin data: $e");
+      // Show user-friendly error message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load profile. Pull down to refresh.'),
+            backgroundColor: Colors.red,
+            action: SnackBarAction(
+              label: 'Retry',
+              textColor: Colors.white,
+              onPressed: _refreshAdminData,
+            ),
+          ),
+        );
+      }
       setState(() {
         _isLoading = false;
       });
     }
   }
 
+  Future<void> _decodeProfileImageAsync() async {
+    try {
+      final bytes = base64Decode(_profilePicBinary!);
+      if (mounted) {
+        setState(() {
+          _profileImageBytes = bytes;
+        });
+      }
+    } catch (e) {
+      print("Error decoding base64: $e");
+    }
+  }
+
+  // Method to refresh admin data (clears cache and fetches fresh data)
+  Future<void> _refreshAdminData() async {
+    _clearCache();
+    setState(() {
+      _isLoading = true;
+    });
+    await fetchUserName();
+  }
+
+  // Method to clear cached admin data
+  static void _clearCache() {
+    _cachedAdminData = null;
+    _cachedUserId = null;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        children: [
-          _isLoading ? CircularProgressIndicator() : _buildProfileSection(),
-          SizedBox(height: 10),
-        ],
+    return RefreshIndicator(
+      onRefresh: _refreshAdminData,
+      child: SingleChildScrollView(
+        physics: AlwaysScrollableScrollPhysics(),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: [
+              _isLoading
+                  ? Container(
+                      height: 200,
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 16),
+                            Text('Loading admin profile...'),
+                          ],
+                        ),
+                      ),
+                    )
+                  : _buildProfileSection(),
+              SizedBox(height: 10),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -419,7 +552,7 @@ class _DashboardPageState extends State<DashboardPage> {
               );
 
               if (result == true) {
-                await fetchUserName();
+                await _refreshAdminData();
               }
             },
           ),
@@ -1573,11 +1706,11 @@ class _EmployeeAttendancePageState extends State<EmployeeAttendancePage> {
                   employee['name'].toLowerCase().contains(query) ||
                   employee['eid'].toLowerCase().contains(query) ||
                   (employee['email']?.toLowerCase().contains(query) ?? false) ||
-                  (employee['role']?.toLowerCase().contains(query) ?? false) ||
-                  (employee['department']?.toLowerCase().contains(query) ??
+                  (employee['gender']?.toLowerCase().contains(query) ??
                       false) ||
-                  (employee['phoneNumber']?.toLowerCase().contains(query) ??
-                      false),
+                  (employee['age']?.toString().toLowerCase().contains(query) ??
+                      false) ||
+                  (employee['phoneNo']?.toLowerCase().contains(query) ?? false),
             )
             .toList();
       }
@@ -1590,6 +1723,16 @@ class _EmployeeAttendancePageState extends State<EmployeeAttendancePage> {
     });
 
     try {
+      // Check if user is authenticated
+      User? currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) {
+        print('❌ User not authenticated');
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+
       print('🚀 ADMIN: Loading employees with attendance...');
 
       // Get all users
@@ -1606,7 +1749,7 @@ class _EmployeeAttendancePageState extends State<EmployeeAttendancePage> {
         String name = userData['name']?.toString() ?? 'Unknown';
         String email = userData['email']?.toString() ?? 'No Email';
         String eid = userData['Eid']?.toString() ?? uid;
-        String phoneNo = userData['phoneNo']?.toString() ?? 'No Phone';
+        String phoneNo = userData['mobile']?.toString() ?? 'No Phone';
 
         print('👤 User: $name (UID: $uid, EID: $eid)');
 
@@ -1850,27 +1993,9 @@ class _EmployeeAttendancePageState extends State<EmployeeAttendancePage> {
         _employees.fold(0, (sum, emp) => sum + (emp['absentDays'] as int));
     int totalEmployees = _employees.length;
 
-    return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: Text(
-          'Employee Attendance',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-        backgroundColor: Color(0xFF2196F3),
-        iconTheme: IconThemeData(color: Colors.white),
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: Icon(Icons.refresh),
-            onPressed: _loadEmployeesWithAttendance,
-          ),
-        ],
-      ),
-      body: Column(
+    return Container(
+      color: Colors.grey[100],
+      child: Column(
         children: [
           // Statistics cards
           Container(
@@ -1916,20 +2041,36 @@ class _EmployeeAttendancePageState extends State<EmployeeAttendancePage> {
             ),
           ),
 
-          // Search bar
+          // Search bar with Refresh button
           Padding(
             padding: EdgeInsets.symmetric(horizontal: 16),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search employees...',
-                prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'Search employees...',
+                      prefixIcon: Icon(Icons.search),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                  ),
                 ),
-                filled: true,
-                fillColor: Colors.white,
-              ),
+                SizedBox(width: 8),
+                IconButton(
+                  icon: Icon(Icons.refresh),
+                  onPressed: _loadEmployeesWithAttendance,
+                  tooltip: 'Refresh',
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    padding: EdgeInsets.all(12),
+                  ),
+                ),
+              ],
             ),
           ),
 
@@ -2916,36 +3057,374 @@ class _DateDetailsPageState extends State<DateDetailsPage> {
 
 // =================== END DRILL-DOWN PAGES ===================
 
-// TrackingScreen - simplified version without location
+// TrackingScreen - Live Location tracking with Google Maps
 class TrackingScreen extends StatefulWidget {
   @override
   _TrackingScreenState createState() => _TrackingScreenState();
 }
 
 class _TrackingScreenState extends State<TrackingScreen> {
+  List<Map<String, dynamic>> _liveLocations = [];
+  bool _isLoading = true;
+  String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLiveLocations();
+  }
+
+  Future<void> _loadLiveLocations() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      print('📍 Loading live locations from Firestore...');
+
+      QuerySnapshot snapshot =
+          await FirebaseFirestore.instance.collection('live_locations').get();
+
+      List<Map<String, dynamic>> locations = [];
+
+      for (var doc in snapshot.docs) {
+        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+
+        // Ensure we have required fields
+        if (data.containsKey('name') &&
+            data.containsKey('Eid') &&
+            data.containsKey('latitude') &&
+            data.containsKey('longitude')) {
+          locations.add({
+            'id': doc.id,
+            'name': data['name']?.toString() ?? 'Unknown',
+            'Eid': data['Eid']?.toString() ?? 'N/A',
+            'latitude': _parseDouble(data['latitude']),
+            'longitude': _parseDouble(data['longitude']),
+            'timestamp': data['timestamp'],
+            'allData': data, // Store all data for debugging
+          });
+        }
+      }
+
+      print('✅ Loaded ${locations.length} live locations');
+
+      setState(() {
+        _liveLocations = locations;
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('❌ Error loading live locations: $e');
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading live locations: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  double _parseDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) {
+      return double.tryParse(value) ?? 0.0;
+    }
+    return 0.0;
+  }
+
+  List<Map<String, dynamic>> get _filteredLocations {
+    if (_searchQuery.isEmpty) return _liveLocations;
+
+    return _liveLocations.where((location) {
+      String name = location['name'].toString().toLowerCase();
+      String eid = location['Eid'].toString().toLowerCase();
+      String query = _searchQuery.toLowerCase();
+
+      return name.contains(query) || eid.contains(query);
+    }).toList();
+  }
+
+  void _navigateToMap(Map<String, dynamic> location) async {
+    double lat = location['latitude'];
+    double lng = location['longitude'];
+
+    // Try different URL schemes for opening Google Maps
+    List<String> urls = [
+      'google.navigation:q=$lat,$lng', // Google Maps navigation
+      'comgooglemaps://?q=$lat,$lng', // Google Maps app
+      'https://www.google.com/maps/search/?api=1&query=$lat,$lng', // Web fallback
+    ];
+
+    bool launched = false;
+
+    for (String url in urls) {
+      try {
+        final Uri uri = Uri.parse(url);
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+          launched = true;
+          break;
+        }
+      } catch (e) {
+        print('Failed to launch $url: $e');
+      }
+    }
+
+    if (!launched) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not open Google Maps'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text("Location Tracking"),
-        backgroundColor: Colors.blue[100],
+    return Container(
+      color: Colors.grey[50],
+      child: Column(
+        children: [
+          // Search Bar with Refresh Button
+          Container(
+            padding: EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Search by name or Employee ID...',
+                      prefixIcon: Icon(Icons.search, color: Colors.indigo),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: Colors.indigo.shade200),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: Colors.indigo.shade200),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: Colors.indigo, width: 2),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        _searchQuery = value;
+                      });
+                    },
+                  ),
+                ),
+                SizedBox(width: 8),
+                IconButton(
+                  icon: Icon(Icons.refresh, color: Colors.indigo),
+                  onPressed: _loadLiveLocations,
+                  tooltip: 'Refresh Locations',
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    padding: EdgeInsets.all(12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Content
+          Expanded(
+            child: _isLoading
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Colors.indigo),
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          'Loading live locations...',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : _filteredLocations.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.location_off,
+                              size: 80,
+                              color: Colors.grey[400],
+                            ),
+                            SizedBox(height: 16),
+                            Text(
+                              _searchQuery.isEmpty
+                                  ? 'No live locations found'
+                                  : 'No locations match your search',
+                              style: TextStyle(
+                                fontSize: 18,
+                                color: Colors.grey[600],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              _searchQuery.isEmpty
+                                  ? 'Live locations will appear here when available'
+                                  : 'Try searching with different keywords',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[500],
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: _loadLiveLocations,
+                        color: Colors.indigo,
+                        child: ListView.builder(
+                          padding: EdgeInsets.symmetric(horizontal: 16),
+                          itemCount: _filteredLocations.length,
+                          itemBuilder: (context, index) {
+                            Map<String, dynamic> location =
+                                _filteredLocations[index];
+                            return _buildLocationCard(location);
+                          },
+                        ),
+                      ),
+          ),
+        ],
       ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.location_on, size: 100, color: Colors.blue),
-            SizedBox(height: 20),
-            Text(
-              "Location Tracking",
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            SizedBox(height: 10),
-            Text(
-              "Feature available in next update",
-              style: TextStyle(fontSize: 16, color: Colors.grey),
-            ),
-          ],
+    );
+  }
+
+  Widget _buildLocationCard(Map<String, dynamic> location) {
+    return Card(
+      margin: EdgeInsets.only(bottom: 12),
+      elevation: 3,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _navigateToMap(location),
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Row(
+            children: [
+              // Avatar with location icon
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.indigo, Colors.indigo.shade300],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(25),
+                ),
+                child: Icon(
+                  Icons.person_pin_circle,
+                  color: Colors.white,
+                  size: 28,
+                ),
+              ),
+
+              SizedBox(width: 16),
+
+              // Employee details
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      location['name'],
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.badge,
+                          size: 16,
+                          color: Colors.indigo.shade400,
+                        ),
+                        SizedBox(width: 4),
+                        Text(
+                          'ID: ${location['Eid']}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.location_on,
+                          size: 16,
+                          color: Colors.red.shade400,
+                        ),
+                        SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            'Lat: ${location['latitude'].toStringAsFixed(6)}, '
+                            'Lng: ${location['longitude'].toStringAsFixed(6)}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[500],
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              // Navigation arrow
+              Container(
+                padding: EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.indigo.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.arrow_forward_ios,
+                  color: Colors.indigo,
+                  size: 16,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -2962,6 +3441,7 @@ class _ProfilePageState extends State<ProfilePage> {
   final _formKey = GlobalKey<FormState>();
   Map<String, dynamic> userData = {};
   bool isLoading = true;
+  Uint8List? _profileImageBytes;
 
   @override
   void initState() {
@@ -2969,19 +3449,98 @@ class _ProfilePageState extends State<ProfilePage> {
     _loadUserData();
   }
 
+  void _decodeProfileImage() {
+    if (userData["profilePicBinary"] != null &&
+        userData["profilePicBinary"] is String &&
+        (userData["profilePicBinary"] as String).isNotEmpty) {
+      try {
+        _profileImageBytes = base64Decode(userData["profilePicBinary"]);
+        setState(() {});
+      } catch (e) {
+        print("Error decoding profile image: $e");
+      }
+    }
+  }
+
+  String _formatTimestamp(dynamic timestamp) {
+    if (timestamp == null) return "Not available";
+
+    if (timestamp is Timestamp) {
+      // Firestore Timestamp
+      DateTime dateTime = timestamp.toDate();
+      return dateTime.toString();
+    } else if (timestamp is String) {
+      // Already a string
+      return timestamp;
+    } else {
+      // Try to convert to string
+      return timestamp.toString();
+    }
+  }
+
+  String _getStringValue(dynamic value) {
+    if (value == null) return "";
+    if (value is String) return value;
+    return value.toString();
+  }
+
   Future<void> _loadUserData() async {
     User? user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
+    if (user == null) {
+      setState(() {
+        isLoading = false;
+      });
+      return;
+    }
+
+    try {
+      print("📥 Fetching admin profile data for: ${user.uid}");
+
       DocumentSnapshot doc = await FirebaseFirestore.instance
-          .collection('users')
+          .collection('Admins')
           .doc(user.uid)
-          .get();
+          .get()
+          .timeout(Duration(seconds: 10));
 
       if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        print("✅ Admin profile data loaded successfully");
+
         setState(() {
-          userData = doc.data() as Map<String, dynamic>;
+          userData = data;
           isLoading = false;
         });
+
+        // Decode profile image if available
+        _decodeProfileImage();
+      } else {
+        print("❌ Admin document not found for user: ${user.uid}");
+        setState(() {
+          isLoading = false;
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Admin profile not found'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print("❌ Error loading admin profile: $e");
+      setState(() {
+        isLoading = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading profile: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
@@ -2990,14 +3549,46 @@ class _ProfilePageState extends State<ProfilePage> {
     if (_formKey.currentState!.validate()) {
       User? user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .update(userData);
+        try {
+          // Create update data, excluding sensitive fields that shouldn't be updated
+          Map<String, dynamic> updateData = Map<String, dynamic>.from(userData);
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Profile updated successfully")),
-        );
+          // Preserve these fields (don't update them via form)
+          updateData
+              .remove('Password'); // Don't update password through profile
+          updateData.remove('uid'); // UID should not be changed
+          updateData.remove('timestamp'); // Timestamp should not be changed
+
+          // Preserve profilePicBinary if it exists (we don't update it through this form)
+          // If you want to allow updating profile pic, you'd need to add image picker functionality
+
+          // Ensure both Email and email fields are updated
+          if (updateData.containsKey('Email')) {
+            updateData['email'] = updateData['Email'];
+          } else if (updateData.containsKey('email')) {
+            updateData['Email'] = updateData['email'];
+          }
+
+          await FirebaseFirestore.instance
+              .collection('Admins')
+              .doc(user.uid)
+              .update(updateData);
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Profile updated successfully"),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } catch (e) {
+          print("❌ Error updating admin profile: $e");
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Error updating profile: $e"),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
     }
   }
@@ -3005,43 +3596,219 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
-      return Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Loading admin profile...'),
+          ],
+        ),
       );
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text("Profile"),
-        backgroundColor: Colors.blue[100],
-      ),
-      body: Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: [
-              TextFormField(
-                initialValue: userData["name"],
-                decoration: InputDecoration(labelText: "Name"),
-                onChanged: (value) => userData["name"] = value,
-                validator: (value) =>
-                    value!.isEmpty ? "Please enter a name" : null,
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(16.0),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Profile Header Card
+            Card(
+              elevation: 4,
+              child: Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.blueAccent, Colors.indigo],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  children: [
+                    CircleAvatar(
+                      radius: 50,
+                      backgroundColor: Colors.white,
+                      backgroundImage: _profileImageBytes != null
+                          ? MemoryImage(_profileImageBytes!)
+                          : null,
+                      child: _profileImageBytes == null
+                          ? Icon(
+                              Icons.admin_panel_settings,
+                              size: 50,
+                              color: Colors.blueAccent,
+                            )
+                          : null,
+                    ),
+                    SizedBox(height: 16),
+                    Text(
+                      "${userData["FirstName"] ?? ""} ${userData["LastName"] ?? ""}"
+                          .trim(),
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      "Administrator",
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.white70,
+                      ),
+                    ),
+                    if (userData["Email"] != null ||
+                        userData["email"] != null) ...[
+                      SizedBox(height: 4),
+                      Text(
+                        userData["Email"] ?? userData["email"] ?? "",
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.white70,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
-              TextFormField(
-                initialValue: userData["email"],
-                decoration: InputDecoration(labelText: "Email"),
-                onChanged: (value) => userData["email"] = value,
-                validator: (value) =>
-                    value!.isEmpty ? "Please enter an email" : null,
+            ),
+
+            SizedBox(height: 24),
+
+            // Profile Form
+            Card(
+              elevation: 2,
+              child: Padding(
+                padding: EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Profile Information",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey[800],
+                      ),
+                    ),
+                    SizedBox(height: 20),
+                    // First Name
+                    TextFormField(
+                      initialValue: _getStringValue(userData["FirstName"]),
+                      decoration: InputDecoration(
+                        labelText: "First Name",
+                        prefixIcon: Icon(Icons.person),
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (value) => userData["FirstName"] = value,
+                      validator: (value) =>
+                          value!.isEmpty ? "Please enter a first name" : null,
+                    ),
+                    SizedBox(height: 16),
+                    // Last Name
+                    TextFormField(
+                      initialValue: _getStringValue(userData["LastName"]),
+                      decoration: InputDecoration(
+                        labelText: "Last Name",
+                        prefixIcon: Icon(Icons.person_outline),
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (value) => userData["LastName"] = value,
+                      validator: (value) =>
+                          value!.isEmpty ? "Please enter a last name" : null,
+                    ),
+                    SizedBox(height: 16),
+                    // Email (using Email field first, fallback to email)
+                    TextFormField(
+                      initialValue: _getStringValue(
+                          userData["Email"] ?? userData["email"]),
+                      decoration: InputDecoration(
+                        labelText: "Email",
+                        prefixIcon: Icon(Icons.email),
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (value) {
+                        userData["Email"] = value;
+                        userData["email"] = value; // Update both fields
+                      },
+                      validator: (value) =>
+                          value!.isEmpty ? "Please enter an email" : null,
+                    ),
+                    SizedBox(height: 16),
+                    // Phone Number
+                    TextFormField(
+                      initialValue: _getStringValue(userData["PhoneNumber"]),
+                      decoration: InputDecoration(
+                        labelText: "Phone Number",
+                        prefixIcon: Icon(Icons.phone),
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (value) => userData["PhoneNumber"] = value,
+                      keyboardType: TextInputType.phone,
+                    ),
+                    SizedBox(height: 16),
+                    // Age
+                    TextFormField(
+                      initialValue: _getStringValue(userData["Age"]),
+                      decoration: InputDecoration(
+                        labelText: "Age",
+                        prefixIcon: Icon(Icons.calendar_today),
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (value) => userData["Age"] = value,
+                      keyboardType: TextInputType.number,
+                    ),
+                    SizedBox(height: 16),
+                    // Date of Birth
+                    TextFormField(
+                      initialValue: _getStringValue(userData["DateOfBirth"]),
+                      decoration: InputDecoration(
+                        labelText: "Date of Birth",
+                        prefixIcon: Icon(Icons.cake),
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (value) => userData["DateOfBirth"] = value,
+                      readOnly: true,
+                    ),
+                    SizedBox(height: 16),
+                    // Gender
+                    TextFormField(
+                      initialValue: _getStringValue(userData["Gender"]),
+                      decoration: InputDecoration(
+                        labelText: "Gender",
+                        prefixIcon: Icon(Icons.people),
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (value) => userData["Gender"] = value,
+                    ),
+                    SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _saveChanges,
+                        icon: Icon(Icons.save),
+                        label: Text("Save Changes"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blueAccent,
+                          foregroundColor: Colors.white,
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _saveChanges,
-                child: Text("Save Changes"),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -3126,6 +3893,16 @@ class _ActiveUsersPageState extends State<ActiveUsersPage> {
     });
 
     try {
+      // Check if user is authenticated
+      User? currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) {
+        print('❌ User not authenticated for active users');
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+
       String todayDate = _getTodayDate();
 
       // Get all users
@@ -3148,14 +3925,29 @@ class _ActiveUsersPageState extends State<ActiveUsersPage> {
           Map<String, dynamic> attendanceData =
               await _getTodayAttendanceDetails(uid, eid, todayDate);
 
+          // Debug print to check user data fields
+          print('🔍 User data for $uid: ${userData.keys.toList()}');
+          print('🔍 Gender: ${userData['gender']}, Age: ${userData['age']}');
+
+          // Try alternative field names if main ones don't exist
+          String gender = userData['gender'] ??
+              userData['Gender'] ??
+              userData['GENDER'] ??
+              'Not specified';
+
+          String age = userData['age']?.toString() ??
+              userData['Age']?.toString() ??
+              userData['AGE']?.toString() ??
+              'Not specified';
+
           activeUsers.add({
             'uid': uid,
             'eid': eid,
             'name': userData['name'] ?? 'Unknown',
             'email': userData['email'] ?? 'No email',
-            'phoneNo': userData['phoneNo'] ?? 'No phone',
-            'department': userData['department'] ?? 'Not specified',
-            'role': userData['role'] ?? 'Employee',
+            'phoneNo': userData['mobile'] ?? 'No phone',
+            'gender': gender,
+            'age': age,
             'attendanceData': attendanceData,
           });
         }
@@ -3494,10 +4286,16 @@ class _ActiveUsersPageState extends State<ActiveUsersPage> {
                                               user['email']),
                                           _buildDetailRow(Icons.phone, 'Phone',
                                               user['phoneNo']),
-                                          _buildDetailRow(Icons.business,
-                                              'Department', user['department']),
                                           _buildDetailRow(
-                                              Icons.work, 'Role', user['role']),
+                                              Icons.person,
+                                              'Gender',
+                                              user['gender'] ??
+                                                  'Not specified'),
+                                          _buildDetailRow(
+                                              Icons.cake,
+                                              'Age',
+                                              user['age']?.toString() ??
+                                                  'Not specified'),
                                         ],
                                       ),
                                     ),
@@ -3680,6 +4478,16 @@ class _InactiveUsersPageState extends State<InactiveUsersPage> {
     });
 
     try {
+      // Check if user is authenticated
+      User? currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) {
+        print('❌ User not authenticated for inactive users');
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+
       String todayDate = _getTodayDate();
 
       // Get all users
@@ -3698,19 +4506,29 @@ class _InactiveUsersPageState extends State<InactiveUsersPage> {
             await _checkTodayAttendance(uid, eid, todayDate);
 
         if (!hasTodayAttendance) {
-          // Get latest attendance for additional info
-          Map<String, dynamic> latestAttendance =
-              await _getLatestAttendance(uid, eid);
+          // Debug print to check user data fields
+          print('🔍 Inactive user data for $uid: ${userData.keys.toList()}');
+          print('🔍 Gender: ${userData['gender']}, Age: ${userData['age']}');
+
+          // Try alternative field names if main ones don't exist
+          String gender = userData['gender'] ??
+              userData['Gender'] ??
+              userData['GENDER'] ??
+              'Not specified';
+
+          String age = userData['age']?.toString() ??
+              userData['Age']?.toString() ??
+              userData['AGE']?.toString() ??
+              'Not specified';
 
           inactiveUsers.add({
             'uid': uid,
             'eid': eid,
             'name': userData['name'] ?? 'Unknown',
             'email': userData['email'] ?? 'No email',
-            'phoneNo': userData['phoneNo'] ?? 'No phone',
-            'department': userData['department'] ?? 'Not specified',
-            'role': userData['role'] ?? 'Employee',
-            'latestAttendance': latestAttendance,
+            'phoneNo': userData['mobile'] ?? 'No phone',
+            'gender': gender,
+            'age': age,
           });
         }
       }
@@ -3762,87 +4580,6 @@ class _InactiveUsersPageState extends State<InactiveUsersPage> {
     } catch (e) {
       print('Error checking attendance for $uid/$eid: $e');
       return false;
-    }
-  }
-
-  Future<Map<String, dynamic>> _getLatestAttendance(
-      String uid, String eid) async {
-    try {
-      Map<String, dynamic> latestData = {
-        'lastAttendanceDate': 'Never',
-        'daysSinceLastAttendance': 'Unknown',
-      };
-
-      // Try to get latest attendance by UID
-      QuerySnapshot uidSnapshot = await FirebaseFirestore.instance
-          .collection('attendance')
-          .doc(uid)
-          .collection('dates')
-          .orderBy(FieldPath.documentId, descending: true)
-          .limit(1)
-          .get();
-
-      if (uidSnapshot.docs.isNotEmpty) {
-        String lastDate = uidSnapshot.docs.first.id;
-        latestData['lastAttendanceDate'] = lastDate;
-        latestData['daysSinceLastAttendance'] = _calculateDaysSince(lastDate);
-        latestData['lastAttendanceData'] =
-            uidSnapshot.docs.first.data() as Map<String, dynamic>;
-        return latestData;
-      }
-
-      // Try to get latest attendance by EID
-      QuerySnapshot eidSnapshot = await FirebaseFirestore.instance
-          .collection('attendance')
-          .doc(eid)
-          .collection('dates')
-          .orderBy(FieldPath.documentId, descending: true)
-          .limit(1)
-          .get();
-
-      if (eidSnapshot.docs.isNotEmpty) {
-        String lastDate = eidSnapshot.docs.first.id;
-        latestData['lastAttendanceDate'] = lastDate;
-        latestData['daysSinceLastAttendance'] = _calculateDaysSince(lastDate);
-        latestData['lastAttendanceData'] =
-            eidSnapshot.docs.first.data() as Map<String, dynamic>;
-      }
-
-      return latestData;
-    } catch (e) {
-      print('Error getting latest attendance for $uid/$eid: $e');
-      return {
-        'lastAttendanceDate': 'Error',
-        'daysSinceLastAttendance': 'Unknown',
-      };
-    }
-  }
-
-  String _calculateDaysSince(String dateString) {
-    try {
-      List<String> parts = dateString.split('-');
-      if (parts.length != 3) return 'Unknown';
-
-      DateTime lastDate = DateTime(
-        int.parse(parts[0]),
-        int.parse(parts[1]),
-        int.parse(parts[2]),
-      );
-
-      DateTime today = DateTime.now();
-      DateTime todayDateOnly = DateTime(today.year, today.month, today.day);
-
-      int daysDifference = todayDateOnly.difference(lastDate).inDays;
-
-      if (daysDifference == 0) {
-        return 'Today';
-      } else if (daysDifference == 1) {
-        return '1 day ago';
-      } else {
-        return '$daysDifference days ago';
-      }
-    } catch (e) {
-      return 'Unknown';
     }
   }
 
@@ -3969,8 +4706,6 @@ class _InactiveUsersPageState extends State<InactiveUsersPage> {
                           itemCount: _inactiveUsers.length,
                           itemBuilder: (context, index) {
                             final user = _inactiveUsers[index];
-                            final latestAttendance = user['latestAttendance']
-                                as Map<String, dynamic>;
 
                             return Card(
                               margin: EdgeInsets.symmetric(vertical: 6),
@@ -4072,82 +4807,16 @@ class _InactiveUsersPageState extends State<InactiveUsersPage> {
                                               user['email']),
                                           _buildDetailRow(Icons.phone, 'Phone',
                                               user['phoneNo']),
-                                          _buildDetailRow(Icons.business,
-                                              'Department', user['department']),
                                           _buildDetailRow(
-                                              Icons.work, 'Role', user['role']),
-                                        ],
-                                      ),
-                                    ),
-
-                                    SizedBox(height: 12),
-
-                                    // Last attendance details
-                                    Container(
-                                      padding: EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: Colors.orange[50],
-                                        borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(
-                                            color: Colors.orange[200]!),
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              Icon(Icons.history,
-                                                  color: Colors.orange[700],
-                                                  size: 18),
-                                              SizedBox(width: 6),
-                                              Text(
-                                                'Last Attendance',
-                                                style: TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                  color: Colors.orange[700],
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          SizedBox(height: 8),
-                                          Row(
-                                            children: [
-                                              Expanded(
-                                                child:
-                                                    _buildLastAttendanceDetail(
-                                                  'Date',
-                                                  latestAttendance[
-                                                          'lastAttendanceDate'] ??
-                                                      'Never',
-                                                  Icons.calendar_today,
-                                                ),
-                                              ),
-                                              SizedBox(width: 12),
-                                              Expanded(
-                                                child:
-                                                    _buildLastAttendanceDetail(
-                                                  'Since',
-                                                  latestAttendance[
-                                                          'daysSinceLastAttendance'] ??
-                                                      'Unknown',
-                                                  Icons.access_time,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-
-                                          // Show last attendance data if available
-                                          if (latestAttendance.containsKey(
-                                              'lastAttendanceData')) ...[
-                                            SizedBox(height: 8),
-                                            Divider(color: Colors.orange[200]),
-                                            SizedBox(height: 4),
-                                            _buildLastWorkDetails(
-                                                latestAttendance[
-                                                        'lastAttendanceData']
-                                                    as Map<String, dynamic>),
-                                          ],
+                                              Icons.person,
+                                              'Gender',
+                                              user['gender'] ??
+                                                  'Not specified'),
+                                          _buildDetailRow(
+                                              Icons.cake,
+                                              'Age',
+                                              user['age']?.toString() ??
+                                                  'Not specified'),
                                         ],
                                       ),
                                     ),
@@ -4195,79 +4864,360 @@ class _InactiveUsersPageState extends State<InactiveUsersPage> {
       ),
     );
   }
+}
 
-  Widget _buildLastAttendanceDetail(String label, String value, IconData icon) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(icon, size: 14, color: Colors.orange[600]),
-            SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: Colors.orange[700],
-              ),
-            ),
-          ],
-        ),
-        SizedBox(height: 2),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
+// Live Location Map Page - Google Maps integration
+class LiveLocationMapPage extends StatefulWidget {
+  final Map<String, dynamic> location;
+
+  const LiveLocationMapPage({Key? key, required this.location})
+      : super(key: key);
+
+  @override
+  _LiveLocationMapPageState createState() => _LiveLocationMapPageState();
+}
+
+class _LiveLocationMapPageState extends State<LiveLocationMapPage> {
+  late gmaps.GoogleMapController _mapController;
+  late gmaps.LatLng _userLocation;
+  late Set<gmaps.Marker> _markers;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeMap();
+  }
+
+  void _initializeMap() {
+    try {
+      double latitude = widget.location['latitude'];
+      double longitude = widget.location['longitude'];
+
+      if (latitude == 0.0 && longitude == 0.0) {
+        throw Exception('Invalid coordinates');
+      }
+
+      _userLocation = gmaps.LatLng(latitude, longitude);
+
+      _markers = {
+        gmaps.Marker(
+          markerId: gmaps.MarkerId(widget.location['Eid']),
+          position: _userLocation,
+          infoWindow: gmaps.InfoWindow(
+            title: widget.location['name'],
+            snippet: 'Employee ID: ${widget.location['Eid']}',
           ),
+          icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(
+              gmaps.BitmapDescriptor.hueRed),
         ),
-      ],
+      };
+
+      setState(() {
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('❌ Error initializing map: $e');
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading location: Invalid coordinates'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _onMapCreated(gmaps.GoogleMapController controller) {
+    _mapController = controller;
+
+    // Animate to user location with some delay to ensure map is ready
+    Future.delayed(Duration(milliseconds: 500), () {
+      if (mounted) {
+        _mapController.animateCamera(
+          gmaps.CameraUpdate.newCameraPosition(
+            gmaps.CameraPosition(
+              target: _userLocation,
+              zoom: 16.0,
+            ),
+          ),
+        );
+      }
+    });
+  }
+
+  void _centerOnUser() {
+    _mapController.animateCamera(
+      gmaps.CameraUpdate.newCameraPosition(
+        gmaps.CameraPosition(
+          target: _userLocation,
+          zoom: 18.0,
+        ),
+      ),
     );
   }
 
-  Widget _buildLastWorkDetails(Map<String, dynamic> attendanceData) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Last Work Session:',
+  void _openInGoogleMaps() async {
+    double lat = widget.location['latitude'];
+    double lng = widget.location['longitude'];
+
+    // Try different URL schemes for opening Google Maps
+    List<String> urls = [
+      'google.navigation:q=$lat,$lng', // Google Maps navigation
+      'comgooglemaps://?q=$lat,$lng', // Google Maps app
+      'https://www.google.com/maps/search/?api=1&query=$lat,$lng', // Web fallback
+    ];
+
+    bool launched = false;
+
+    for (String url in urls) {
+      try {
+        final Uri uri = Uri.parse(url);
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+          launched = true;
+          break;
+        }
+      } catch (e) {
+        print('Failed to launch $url: $e');
+      }
+    }
+
+    if (!launched) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not open Google Maps'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          widget.location['name'],
           style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: Colors.orange[700],
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
           ),
         ),
-        SizedBox(height: 4),
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'In: ${attendanceData['checkInTime']?.toString() ?? 'Not recorded'}',
-                style: TextStyle(fontSize: 11, color: Colors.black87),
-              ),
-            ),
-            Expanded(
-              child: Text(
-                'Out: ${attendanceData['checkOutTime']?.toString().isEmpty == true ? 'Not recorded' : attendanceData['checkOutTime']?.toString() ?? 'Not recorded'}',
-                style: TextStyle(fontSize: 11, color: Colors.black87),
-              ),
-            ),
-          ],
-        ),
-        if (attendanceData['formattedTime']?.toString().isNotEmpty == true) ...[
-          SizedBox(height: 2),
-          Text(
-            'Duration: ${attendanceData['formattedTime'].toString()}',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-              color: Colors.black87,
-            ),
+        backgroundColor: Colors.indigo,
+        iconTheme: IconThemeData(color: Colors.white),
+        elevation: 4,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.open_in_new, color: Colors.white),
+            onPressed: _openInGoogleMaps,
+            tooltip: 'Open in Google Maps',
           ),
         ],
-      ],
+      ),
+      body: _isLoading
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.indigo),
+                  ),
+                  SizedBox(height: 16),
+                  Text(
+                    'Loading map...',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : Column(
+              children: [
+                // Employee info card
+                Container(
+                  width: double.infinity,
+                  margin: EdgeInsets.all(12),
+                  child: Card(
+                    elevation: 4,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 50,
+                            height: 50,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [Colors.indigo, Colors.indigo.shade300],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(25),
+                            ),
+                            child: Icon(
+                              Icons.person,
+                              color: Colors.white,
+                              size: 28,
+                            ),
+                          ),
+                          SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  widget.location['name'],
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'Employee ID: ${widget.location['Eid']}',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'Lat: ${widget.location['latitude'].toStringAsFixed(6)}, '
+                                  'Lng: ${widget.location['longitude'].toStringAsFixed(6)}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[500],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.green[100],
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.location_on,
+                                  size: 14,
+                                  color: Colors.green[700],
+                                ),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Live',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.green[700],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Google Map
+                Expanded(
+                  child: Container(
+                    margin: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black26,
+                          blurRadius: 8,
+                          offset: Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: gmaps.GoogleMap(
+                        onMapCreated: _onMapCreated,
+                        initialCameraPosition: gmaps.CameraPosition(
+                          target: _userLocation,
+                          zoom: 16.0,
+                        ),
+                        markers: _markers,
+                        mapType: gmaps.MapType.normal,
+                        compassEnabled: true,
+                        myLocationButtonEnabled: false,
+                        zoomControlsEnabled: true,
+                        mapToolbarEnabled: false,
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Action buttons
+                Container(
+                  padding: EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: _centerOnUser,
+                          icon: Icon(Icons.my_location, color: Colors.white),
+                          label: Text(
+                            'Center Location',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.indigo,
+                            padding: EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: _openInGoogleMaps,
+                          icon: Icon(Icons.open_in_new, color: Colors.white),
+                          label: Text(
+                            'Open in Maps',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            padding: EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
     );
   }
 }

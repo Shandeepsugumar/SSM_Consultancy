@@ -41,11 +41,11 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _pages = [
-      HomeScreen(key: _homeScreenKey),
+      HomeScreen(key: _homeScreenKey, onNavigationTap: _onItemTapped),
       SchedulePage(),
       AttendanceScreen(),
       // AccountsScreen(),
-      ProfilePage(),
+      ProfilePage(showAppBar: false), // Don't show AppBar when in bottom nav
     ];
     _startSimpleLocationTracking();
   }
@@ -229,6 +229,13 @@ class _HomePageState extends State<HomePage> {
                 onPressed: () => setState(() => _selectedIndex = 0),
               ),
         actions: [
+          // Show logout button when profile page is selected
+          if (_selectedIndex == 3)
+            IconButton(
+              icon: Icon(Icons.logout, color: Colors.white),
+              onPressed: () => _handleHomePageLogout(context),
+              tooltip: 'Logout',
+            ),
           if (_lastLocationUpdate != null)
             IconButton(
               icon: Icon(
@@ -290,11 +297,122 @@ class _HomePageState extends State<HomePage> {
         return "Welcome To SSM";
     }
   }
+
+  void _handleHomePageLogout(BuildContext context) async {
+    // Show confirmation dialog
+    bool shouldLogout = await showDialog<bool>(
+          context: context,
+          builder: (BuildContext context) {
+            return AlertDialog(
+              title: Text(
+                'Confirm Logout',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.red[700],
+                ),
+              ),
+              content: Text(
+                'Are you sure you want to logout?',
+                style: TextStyle(fontSize: 16),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: Text(
+                    'Cancel',
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: Text(
+                    'Logout',
+                    style: TextStyle(fontSize: 16),
+                  ),
+                ),
+              ],
+            );
+          },
+        ) ??
+        false;
+
+    if (!shouldLogout) return;
+
+    try {
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return Center(
+            child: Container(
+              padding: EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 15),
+                  Text(
+                    'Logging out...',
+                    style: TextStyle(fontSize: 16),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+
+      // Clear SessionManager data
+      await SessionManager.clearUserSession();
+      print('SessionManager logout completed');
+
+      // Sign out from Firebase Auth
+      try {
+        await FirebaseAuth.instance.signOut();
+        print('Firebase Auth logout completed');
+      } catch (firebaseError) {
+        print('Firebase logout error (continuing anyway): $firebaseError');
+      }
+
+      // Close loading dialog
+      Navigator.of(context).pop();
+
+      // Navigate to login page and clear all previous routes
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => LoginPage()),
+        (route) => false, // This will remove all routes from the stack
+      );
+    } catch (e) {
+      print('Error during logout: $e');
+      // Close loading dialog if still open
+      Navigator.of(context).pop();
+      // Still navigate to login page even if there was an error
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => LoginPage()),
+        (route) => false,
+      );
+    }
+  }
 }
 
 // Screens
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final Function(int)? onNavigationTap;
+
+  const HomeScreen({super.key, this.onNavigationTap});
 
   @override
   _HomeScreenState createState() => _HomeScreenState();
@@ -308,7 +426,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[200],
-      body: DashboardPage(key: _dashboardKey),
+      body: DashboardPage(
+          key: _dashboardKey, onNavigationTap: widget.onNavigationTap),
     );
   }
 
@@ -320,7 +439,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
 // Dashboard Widget with Firebase Name Fetching
 class DashboardPage extends StatefulWidget {
-  const DashboardPage({super.key});
+  final Function(int)? onNavigationTap;
+
+  const DashboardPage({super.key, this.onNavigationTap});
 
   @override
   _DashboardPageState createState() => _DashboardPageState();
@@ -394,24 +515,58 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        children: [
-          _isLoading ? CircularProgressIndicator() : _buildProfileSection(),
-          SizedBox(height: 10),
-          _buildQuickAccessSection(),
-        ],
-      ),
-    );
+    return _isLoading
+        ? Center(child: CircularProgressIndicator())
+        : SingleChildScrollView(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildProfileSection(),
+                SizedBox(height: 16),
+                _buildQuickAccessSection(),
+                SizedBox(height: 16), // Bottom padding for better scrolling
+              ],
+            ),
+          );
   }
 
   Widget _buildProfileSection() {
+    if (userData == null) {
+      return Container(
+        padding: EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.blueAccent, Colors.indigo],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black26,
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Text(
+            "Loading profile...",
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.white70,
+            ),
+          ),
+        ),
+      );
+    }
+
     return Container(
-      padding: EdgeInsets.all(16),
+      padding: EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Colors.blueAccent, Colors.indigo],
+          colors: [Colors.blue[900]!, Colors.blue[700]!],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -426,17 +581,43 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 50,
-            backgroundColor: Colors.white,
-            backgroundImage: _profileImageBytes != null
-                ? MemoryImage(_profileImageBytes!)
-                : (_profileImageUrl != null && _profileImageUrl!.isNotEmpty
-                    ? NetworkImage(_profileImageUrl!)
-                    : null),
-            child: (_profileImageUrl == null && _profileImageBytes == null)
-                ? Icon(Icons.person, size: 60, color: Colors.grey)
-                : null,
+          Stack(
+            children: [
+              CircleAvatar(
+                radius: 50,
+                backgroundColor: Colors.white,
+                backgroundImage: _profileImageBytes != null
+                    ? MemoryImage(_profileImageBytes!)
+                    : (_profileImageUrl != null && _profileImageUrl!.isNotEmpty
+                        ? NetworkImage(_profileImageUrl!)
+                        : null),
+                child: (_profileImageUrl == null && _profileImageBytes == null)
+                    ? Icon(Icons.person, size: 60, color: Colors.grey)
+                    : null,
+              ),
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.blue[900]!, width: 2),
+                  ),
+                  child: IconButton(
+                    icon: Icon(Icons.edit, color: Colors.blue[900]!, size: 18),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => ProfilePage()),
+                      );
+                    },
+                    padding: EdgeInsets.all(6),
+                    constraints: BoxConstraints(),
+                  ),
+                ),
+              ),
+            ],
           ),
           SizedBox(width: 16),
           Expanded(
@@ -444,54 +625,46 @@ class _DashboardPageState extends State<DashboardPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  userData != null
-                      ? userData!["name"] ?? "Unknown User"
-                      : "Loading...",
+                  userData!["name"] ?? "Unknown User",
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                   ),
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
-                SizedBox(height: 4),
-                if (userData != null) ...[
-                  Text(
+                SizedBox(height: 6),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
                     "ID: ${userData!["uid"] ?? "N/A"}",
                     style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.white70,
-                      fontWeight: FontWeight.w500,
+                      fontSize: 13,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  SizedBox(height: 2),
+                ),
+                SizedBox(height: 6),
+                if (userData!["qualification"] != null &&
+                    userData!["qualification"].toString().isNotEmpty)
                   Text(
                     userData!["qualification"] ?? "Employee",
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: 15,
                       color: Colors.white70,
+                      fontWeight: FontWeight.w500,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ] else ...[
-                  Text(
-                    "Employee",
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.white70,
-                    ),
-                  ),
-                ],
               ],
             ),
-          ),
-          IconButton(
-            icon: Icon(Icons.edit, color: Colors.white70),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => ProfilePage()),
-              );
-            },
           ),
         ],
       ),
@@ -500,7 +673,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Widget _buildQuickAccessSection() {
     return Container(
-      padding: EdgeInsets.all(16),
+      padding: EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
@@ -514,31 +687,39 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            "Quick Access",
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
+          Row(
+            children: [
+              Icon(Icons.dashboard, color: Colors.blue[900], size: 24),
+              SizedBox(width: 8),
+              Text(
+                "Quick Access",
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
           ),
-          SizedBox(height: 16),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: NeverScrollableScrollPhysics(),
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-            ),
-            itemCount: _quickAccessItems.length,
-            itemBuilder: (context, index) {
-              return _buildQuickAccessItem(
-                _quickAccessItems[index]['icon'],
-                _quickAccessItems[index]['label'],
-              );
-            },
+          SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: _buildQuickAccessItem(
+                  _quickAccessItems[0]['icon'],
+                  _quickAccessItems[0]['label'],
+                ),
+              ),
+              SizedBox(width: 16),
+              Expanded(
+                child: _buildQuickAccessItem(
+                  _quickAccessItems[1]['icon'],
+                  _quickAccessItems[1]['label'],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -546,67 +727,82 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _buildQuickAccessItem(IconData icon, String label) {
-    return GestureDetector(
-      onTap: () {
-        if (label == "My Attendance") {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => AttendanceScreen()),
-          );
-        } else if (label == "My Schedule") {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => SchedulePage()),
-          );
-        }
-        //else if (label == "My Accounts") {
-        //   Navigator.push(
-        //     context,
-        //     MaterialPageRoute(builder: (context) => AccountsScreen()),
-        //   );
-        // }
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(15),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black12,
-              blurRadius: 8,
-              offset: Offset(0, 4),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          if (label == "My Attendance" && widget.onNavigationTap != null) {
+            // Navigate to attendance tab (index 2)
+            widget.onNavigationTap!(2);
+          } else if (label == "My Schedule" && widget.onNavigationTap != null) {
+            // Navigate to schedule tab (index 1)
+            widget.onNavigationTap!(1);
+          }
+        },
+        borderRadius: BorderRadius.circular(15),
+        child: Container(
+          constraints: BoxConstraints(
+            minHeight: 120,
+          ),
+          padding: EdgeInsets.symmetric(vertical: 20, horizontal: 12),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.blue[50]!, Colors.blue[100]!],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-          ],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blueAccent,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.blue.withOpacity(0.5),
-                    blurRadius: 10,
-                    offset: Offset(0, 4),
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(color: Colors.blue[200]!, width: 1),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.blue.withOpacity(0.1),
+                blurRadius: 8,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Container(
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Colors.blue[700]!, Colors.blue[900]!],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.blue.withOpacity(0.4),
+                        blurRadius: 8,
+                        offset: Offset(0, 3),
+                      ),
+                    ],
                   ),
-                ],
+                  child: Icon(icon, size: 26, color: Colors.white),
+                ),
               ),
-              child: Icon(icon, size: 30, color: Colors.white),
-            ),
-            SizedBox(height: 10),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: Colors.black87,
+              SizedBox(height: 10),
+              Flexible(
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.blue[900],
+                    height: 1.2,
+                  ),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -733,63 +929,189 @@ class _SchedulePageState extends State<SchedulePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('My Work Schedule'),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            icon: Icon(_showAllSchedules ? Icons.calendar_today : Icons.list),
-            onPressed: () {
-              setState(() {
-                _showAllSchedules = !_showAllSchedules;
-              });
-            },
-            tooltip: _showAllSchedules
-                ? 'Show date schedules'
-                : 'Show all schedules',
-          ),
-          IconButton(
-            icon: Icon(Icons.refresh),
-            onPressed: _loadScheduleData,
-            tooltip: 'Refresh',
-          ),
-        ],
+    if (_isLoading) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.blue.shade700),
+            ),
+            SizedBox(height: 16),
+            Text(
+              'Loading schedules...',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.blue.shade50,
+            Colors.white,
+            Colors.grey.shade50,
+          ],
+        ),
       ),
-      body: _isLoading
-          ? Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              child: Column(
+      child: SingleChildScrollView(
+        child: Column(
+          children: [
+            // Modern Action buttons row
+            Container(
+              margin: EdgeInsets.all(16),
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  _buildMonthNavigation(),
-                  _buildWeekDays(),
-                  _buildCalendar(),
-                  Divider(height: 1),
-                  _buildScheduleHeader(),
-                  _buildScrollableScheduleList(),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: _showAllSchedules
+                          ? Colors.blue.shade700
+                          : Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: IconButton(
+                      icon: Icon(
+                        Icons.list,
+                        color: _showAllSchedules
+                            ? Colors.white
+                            : Colors.grey.shade700,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _showAllSchedules = true;
+                        });
+                      },
+                      tooltip: 'Show all schedules',
+                    ),
+                  ),
+                  SizedBox(width: 8),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: !_showAllSchedules
+                          ? Colors.blue.shade700
+                          : Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: IconButton(
+                      icon: Icon(
+                        Icons.calendar_today,
+                        color: !_showAllSchedules
+                            ? Colors.white
+                            : Colors.grey.shade700,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _showAllSchedules = false;
+                        });
+                      },
+                      tooltip: 'Show date schedules',
+                    ),
+                  ),
+                  SizedBox(width: 8),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: IconButton(
+                      icon: Icon(
+                        Icons.refresh,
+                        color: Colors.blue.shade700,
+                      ),
+                      onPressed: _loadScheduleData,
+                      tooltip: 'Refresh',
+                    ),
+                  ),
                 ],
               ),
             ),
+            _buildMonthNavigation(),
+            _buildWeekDays(),
+            _buildCalendar(),
+            SizedBox(height: 8),
+            _buildScheduleHeader(),
+            _buildScrollableScheduleList(),
+          ],
+        ),
+      ),
     );
   }
 
   Widget _buildMonthNavigation() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.blue.shade700, Colors.blue.shade600],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.blue.withOpacity(0.3),
+            blurRadius: 15,
+            offset: Offset(0, 5),
+          ),
+        ],
+      ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          IconButton(
-            icon: Icon(Icons.chevron_left),
-            onPressed: _goToPreviousMonth,
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: IconButton(
+              icon: Icon(Icons.chevron_left, color: Colors.white),
+              onPressed: _goToPreviousMonth,
+            ),
           ),
-          Text(
-            DateFormat.yMMMM().format(_focusedDate),
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          Expanded(
+            child: Center(
+              child: Text(
+                DateFormat.yMMMM().format(_focusedDate),
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
           ),
-          IconButton(
-            icon: Icon(Icons.chevron_right),
-            onPressed: _goToNextMonth,
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: IconButton(
+              icon: Icon(Icons.chevron_right, color: Colors.white),
+              onPressed: _goToNextMonth,
+            ),
           ),
         ],
       ),
@@ -798,20 +1120,37 @@ class _SchedulePageState extends State<SchedulePage> {
 
   Widget _buildWeekDays() {
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    return Row(
-      children: days
-          .map((day) => Expanded(
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8.0),
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: EdgeInsets.symmetric(vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: days
+            .map((day) => Expanded(
+                  child: Center(
                     child: Text(
                       day,
-                      style: TextStyle(fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: Colors.grey.shade700,
+                        letterSpacing: 0.5,
+                      ),
                     ),
                   ),
-                ),
-              ))
-          .toList(),
+                ))
+            .toList(),
+      ),
     );
   }
 
@@ -843,99 +1182,186 @@ class _SchedulePageState extends State<SchedulePage> {
               _selectedDate = date;
             });
           },
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Container(
-                margin: EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? Colors.blue
-                      : hasSchedule
-                          ? Colors.green.withOpacity(0.3)
-                          : null,
-                  shape: BoxShape.circle,
-                  border: isSelected
-                      ? Border.all(color: Colors.blue, width: 2)
-                      : null,
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  '$day',
-                  style: TextStyle(
-                    color: isSelected ? Colors.white : Colors.black,
-                    fontWeight:
-                        hasSchedule ? FontWeight.bold : FontWeight.normal,
-                  ),
-                ),
-              ),
-              if (hasSchedule)
-                Positioned(
-                  bottom: 6,
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: Colors.redAccent,
-                      shape: BoxShape.circle,
+          child: Container(
+            margin: EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? Colors.blue.shade700
+                  : hasSchedule
+                      ? Colors.green.shade50
+                      : Colors.white,
+              shape: BoxShape.circle,
+              border: isSelected
+                  ? Border.all(color: Colors.blue.shade700, width: 3)
+                  : hasSchedule
+                      ? Border.all(color: Colors.green.shade300, width: 2)
+                      : Border.all(color: Colors.grey.shade200, width: 1),
+              boxShadow: isSelected
+                  ? [
+                      BoxShadow(
+                        color: Colors.blue.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: Offset(0, 2),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      '$day',
+                      style: TextStyle(
+                        color: isSelected
+                            ? Colors.white
+                            : hasSchedule
+                                ? Colors.green.shade700
+                                : Colors.black87,
+                        fontWeight: isSelected || hasSchedule
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                        fontSize: 16,
+                      ),
                     ),
-                  ),
+                    if (hasSchedule && !isSelected)
+                      Container(
+                        margin: EdgeInsets.only(top: 2),
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade600,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                  ],
                 ),
-            ],
+              ],
+            ),
           ),
         ),
       );
     }
 
-    return Padding(
-      padding: const EdgeInsets.all(8.0),
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
       child: GridView.count(
         crossAxisCount: 7,
         shrinkWrap: true,
         physics: NeverScrollableScrollPhysics(),
+        mainAxisSpacing: 4,
+        crossAxisSpacing: 4,
         children: dayWidgets,
       ),
     );
   }
 
   Widget _buildScheduleHeader() {
+    final scheduleCount = _showAllSchedules
+        ? getAllUserSchedules().length
+        : getSchedulesForSelectedDate().length;
+
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: EdgeInsets.fromLTRB(16, 16, 16, 8),
+      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
-        color: Colors.grey.shade100,
-        border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
+        gradient: LinearGradient(
+          colors: [
+            Colors.blue.shade600,
+            Colors.blue.shade500,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.blue.withOpacity(0.2),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
+          Container(
+            padding: EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              _showAllSchedules ? Icons.list : Icons.calendar_today,
+              color: Colors.white,
+              size: 24,
+            ),
+          ),
+          SizedBox(width: 16),
           Expanded(
-            child: Text(
-              _showAllSchedules
-                  ? 'All My Schedules (${getAllUserSchedules().length})'
-                  : 'Schedules for ${DateFormat.yMMMMd().format(_selectedDate)} (${getSchedulesForSelectedDate().length})',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey.shade700,
-              ),
-              overflow: TextOverflow.ellipsis,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _showAllSchedules
+                      ? 'All My Schedules'
+                      : 'Schedules for ${DateFormat.yMMMMd().format(_selectedDate)}',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                SizedBox(height: 4),
+                Text(
+                  '$scheduleCount ${scheduleCount == 1 ? 'schedule' : 'schedules'}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.white.withOpacity(0.9),
+                  ),
+                ),
+              ],
             ),
           ),
           if (!_showAllSchedules)
             Container(
-              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: Colors.blue.shade100,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.blue.shade300),
-              ),
-              child: Text(
-                'Selected Date',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.blue.shade700,
-                  fontWeight: FontWeight.bold,
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.3),
+                  width: 1,
                 ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.event, color: Colors.white, size: 16),
+                  SizedBox(width: 4),
+                  Text(
+                    'Selected',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
               ),
             ),
         ],
@@ -958,68 +1384,145 @@ class _SchedulePageState extends State<SchedulePage> {
 
     if (_errorMessage != null) {
       return Container(
-        height: 300,
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error_outline, size: 48, color: Colors.red),
-              SizedBox(height: 16),
-              Text(
-                'Error loading schedules',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        margin: EdgeInsets.all(16),
+        padding: EdgeInsets.all(32),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.red.withOpacity(0.1),
+              blurRadius: 15,
+              offset: Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                shape: BoxShape.circle,
               ),
-              SizedBox(height: 8),
-              Text(
-                _errorMessage!,
-                style: TextStyle(fontSize: 14, color: Colors.grey),
-                textAlign: TextAlign.center,
+              child: Icon(Icons.error_outline,
+                  size: 64, color: Colors.red.shade700),
+            ),
+            SizedBox(height: 24),
+            Text(
+              'Error loading schedules',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Colors.red.shade700,
               ),
-              SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _loadScheduleData,
-                child: Text('Retry'),
+            ),
+            SizedBox(height: 12),
+            Text(
+              _errorMessage!,
+              style: TextStyle(
+                fontSize: 15,
+                color: Colors.grey.shade700,
               ),
-            ],
-          ),
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _loadScheduleData,
+              icon: Icon(Icons.refresh),
+              label: Text('Retry'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue.shade700,
+                foregroundColor: Colors.white,
+                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ],
         ),
       );
     }
 
     if (schedules.isEmpty) {
       return Container(
-        height: 300,
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.calendar_today, size: 48, color: Colors.grey),
-              SizedBox(height: 16),
+        margin: EdgeInsets.all(16),
+        padding: EdgeInsets.all(40),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 15,
+              offset: Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.blue.shade100,
+                    Colors.blue.shade50,
+                  ],
+                ),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.calendar_today_outlined,
+                size: 64,
+                color: Colors.blue.shade700,
+              ),
+            ),
+            SizedBox(height: 24),
+            Text(
+              _showAllSchedules
+                  ? 'No Work Schedules'
+                  : 'No Schedule for This Date',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey.shade800,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: 12),
+            Text(
+              _showAllSchedules
+                  ? 'No work schedules found for your account yet.'
+                  : 'No work scheduled for ${DateFormat.yMMMMd().format(_selectedDate)}',
+              style: TextStyle(
+                fontSize: 15,
+                color: Colors.grey.shade600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            if (_showAllSchedules) ...[
+              SizedBox(height: 8),
               Text(
-                _showAllSchedules
-                    ? 'No work schedules found for your account'
-                    : 'No work scheduled for ${DateFormat.yMMMMd().format(_selectedDate)}',
-                style: TextStyle(fontSize: 16, color: Colors.grey),
+                'Contact your administrator if you believe this is an error',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey.shade500,
+                  fontStyle: FontStyle.italic,
+                ),
                 textAlign: TextAlign.center,
               ),
-              if (_showAllSchedules)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8.0),
-                  child: Text(
-                    'Contact your administrator if you believe this is an error',
-                    style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
             ],
-          ),
+          ],
         ),
       );
     }
 
     return Column(
-      children: List.generate(schedules.length, (index) {
-        final schedule = schedules[index];
+      children: schedules.map((schedule) {
         final assignedEmployeeNames =
             _scheduleService.getAssignedEmployeeNames(schedule, _usersMap);
         final isAssignedToCurrentUser =
@@ -1029,357 +1532,433 @@ class _SchedulePageState extends State<SchedulePage> {
         final remainingWorkers =
             schedule.numberOfWorkers - schedule.assignedEmployees.length;
 
-        return Card(
-          margin: EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-          elevation: 3,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Colors.white,
-                  Colors.grey.shade50,
-                ],
-              ),
+        return Container(
+          margin: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white,
+                Colors.blue.shade50,
+              ],
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Header Row with Branch Name and Status
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Row(
-                          children: [
-                            Icon(Icons.business, color: Colors.blue, size: 20),
-                            SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                schedule.branchName.isEmpty
-                                    ? 'Unknown Branch'
-                                    : schedule.branchName,
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.black87,
-                                ),
-                                overflow: TextOverflow.ellipsis,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.08),
+                blurRadius: 15,
+                offset: Offset(0, 5),
+              ),
+            ],
+            border: Border.all(
+              color: Colors.blue.shade100,
+              width: 1,
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header Row with Branch Name and Status
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  Colors.blue.shade600,
+                                  Colors.blue.shade700,
+                                ],
                               ),
+                              borderRadius: BorderRadius.circular(12),
                             ),
-                            if (isAssignedToCurrentUser)
-                              Padding(
-                                padding: const EdgeInsets.only(left: 8.0),
-                                child: Container(
-                                  padding: EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.green.shade100,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                        color: Colors.green.shade300),
+                            child: Icon(
+                              Icons.business,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                          ),
+                          SizedBox(width: 12),
+                          Flexible(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  schedule.branchName.isEmpty
+                                      ? 'Unknown Branch'
+                                      : schedule.branchName,
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black87,
                                   ),
-                                  child: Text(
-                                    'ASSIGNED',
-                                    style: TextStyle(
-                                      color: Colors.green.shade700,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if (isAssignedToCurrentUser)
+                                  Container(
+                                    margin: EdgeInsets.only(top: 4),
+                                    padding: EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          Colors.green.shade400,
+                                          Colors.green.shade500,
+                                        ],
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      'ASSIGNED TO YOU',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        padding:
-                            EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: _getStatusColor(schedule.getDisplayStatus()),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Text(
-                          schedule.getDisplayStatus(),
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  SizedBox(height: 16),
-
-                  // Work Period
-                  Container(
-                    padding: EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.blue.shade200),
-                    ),
-                    child: Column(
-                      children: [
-                        _buildDetailRow(
-                          Icons.calendar_today,
-                          'Work Period',
-                          '${_formatScheduleDate(schedule.startDate)} - ${_formatScheduleDate(schedule.endDate)}',
-                          Colors.blue.shade700,
-                        ),
-                        SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildDetailRow(
-                                Icons.access_time,
-                                'Start Time',
-                                schedule.startTime.isEmpty
-                                    ? 'Not set'
-                                    : schedule.startTime,
-                                Colors.green.shade700,
-                              ),
-                            ),
-                            SizedBox(width: 16),
-                            Expanded(
-                              child: _buildDetailRow(
-                                Icons.access_time_filled,
-                                'End Time',
-                                schedule.endTime.isEmpty
-                                    ? 'Not set'
-                                    : schedule.endTime,
-                                Colors.orange.shade700,
-                              ),
-                            ),
-                          ],
-                        ),
-                        SizedBox(height: 8),
-                        _buildDetailRow(
-                          Icons.hourglass_top,
-                          'Total Hours',
-                          '${schedule.totalHours} hours',
-                          Colors.purple.shade700,
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  SizedBox(height: 12),
-
-                  // Worker Information
-                  Container(
-                    padding: EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.orange.shade200),
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildDetailRow(
-                                Icons.people,
-                                'Workers Needed',
-                                '${schedule.numberOfWorkers}',
-                                Colors.orange.shade700,
-                              ),
-                            ),
-                            SizedBox(width: 16),
-                            Expanded(
-                              child: _buildDetailRow(
-                                Icons.people_outline,
-                                'Assigned',
-                                '${schedule.assignedEmployees.length}',
-                                Colors.green.shade700,
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (remainingWorkers > 0) ...[
-                          SizedBox(height: 8),
-                          Container(
-                            padding: EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.red.shade100,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: Colors.red.shade300),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(Icons.warning,
-                                    color: Colors.red.shade700, size: 18),
-                                SizedBox(width: 8),
-                                Text(
-                                  '$remainingWorkers more worker${remainingWorkers > 1 ? 's' : ''} needed',
-                                  style: TextStyle(
-                                    color: Colors.red.shade700,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ] else if (remainingWorkers == 0) ...[
-                          SizedBox(height: 8),
-                          Container(
-                            padding: EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.green.shade100,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: Colors.green.shade300),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(Icons.check_circle,
-                                    color: Colors.green.shade700, size: 18),
-                                SizedBox(width: 8),
-                                Text(
-                                  'Fully staffed',
-                                  style: TextStyle(
-                                    color: Colors.green.shade700,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
                               ],
                             ),
                           ),
                         ],
-                      ],
-                    ),
-                  ),
-
-                  SizedBox(height: 12),
-
-                  // Assigned Workers List
-                  if (assignedEmployeeNames.isNotEmpty) ...[
-                    Container(
-                      padding: EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.grey.shade300),
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    ),
+                    SizedBox(width: 8),
+                    Container(
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            _getStatusColor(schedule.getDisplayStatus()),
+                            _getStatusColor(schedule.getDisplayStatus())
+                                .withOpacity(0.8),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _getStatusColor(schedule.getDisplayStatus())
+                                .withOpacity(0.3),
+                            blurRadius: 8,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Text(
+                        schedule.getDisplayStatus(),
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                SizedBox(height: 20),
+
+                // Work Period
+                Container(
+                  padding: EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.blue.shade50,
+                        Colors.blue.shade100.withOpacity(0.5),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: Colors.blue.shade200,
+                      width: 1.5,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.blue.withOpacity(0.1),
+                        blurRadius: 8,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      _buildDetailRow(
+                        Icons.calendar_today,
+                        'Work Period',
+                        '${_formatScheduleDate(schedule.startDate)} - ${_formatScheduleDate(schedule.endDate)}',
+                        Colors.blue.shade700,
+                      ),
+                      SizedBox(height: 8),
+                      Row(
                         children: [
-                          Row(
+                          Expanded(
+                            child: _buildDetailRow(
+                              Icons.access_time,
+                              'Start Time',
+                              schedule.startTime.isEmpty
+                                  ? 'Not set'
+                                  : schedule.startTime,
+                              Colors.green.shade700,
+                            ),
+                          ),
+                          SizedBox(width: 16),
+                          Expanded(
+                            child: _buildDetailRow(
+                              Icons.access_time_filled,
+                              'End Time',
+                              schedule.endTime.isEmpty
+                                  ? 'Not set'
+                                  : schedule.endTime,
+                              Colors.orange.shade700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 8),
+                      _buildDetailRow(
+                        Icons.hourglass_top,
+                        'Total Hours',
+                        '${schedule.totalHours} hours',
+                        Colors.purple.shade700,
+                      ),
+                    ],
+                  ),
+                ),
+
+                SizedBox(height: 16),
+
+                // Worker Information
+                Container(
+                  padding: EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.orange.shade50,
+                        Colors.orange.shade100.withOpacity(0.5),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: Colors.orange.shade200,
+                      width: 1.5,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.orange.withOpacity(0.1),
+                        blurRadius: 8,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildDetailRow(
+                              Icons.people,
+                              'Workers Needed',
+                              '${schedule.numberOfWorkers}',
+                              Colors.orange.shade700,
+                            ),
+                          ),
+                          SizedBox(width: 16),
+                          Expanded(
+                            child: _buildDetailRow(
+                              Icons.people_outline,
+                              'Assigned',
+                              '${schedule.assignedEmployees.length}',
+                              Colors.green.shade700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (remainingWorkers > 0) ...[
+                        SizedBox(height: 8),
+                        Container(
+                          padding:
+                              EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade100,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.red.shade300),
+                          ),
+                          child: Row(
                             children: [
-                              Icon(Icons.groups,
-                                  color: Colors.grey.shade700, size: 18),
+                              Icon(Icons.warning,
+                                  color: Colors.red.shade700, size: 18),
                               SizedBox(width: 8),
                               Text(
-                                'Assigned Workers:',
+                                '$remainingWorkers more worker${remainingWorkers > 1 ? 's' : ''} needed',
                                 style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.grey.shade700,
+                                  color: Colors.red.shade700,
                                   fontSize: 14,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
                             ],
                           ),
-                          SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 4,
-                            children: assignedEmployeeNames.map((name) {
-                              bool isCurrentUser = schedule.assignedEmployees[
-                                      assignedEmployeeNames.indexOf(name)] ==
-                                  _currentUserUid;
-                              return Container(
-                                padding: EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: isCurrentUser
-                                      ? Colors.blue.shade100
-                                      : Colors.white,
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: isCurrentUser
-                                        ? Colors.blue.shade300
-                                        : Colors.grey.shade400,
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (isCurrentUser) ...[
-                                      Icon(Icons.person,
-                                          size: 16,
-                                          color: Colors.blue.shade700),
-                                      SizedBox(width: 4),
-                                    ],
-                                    Text(
-                                      isCurrentUser ? 'You' : name,
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        color: isCurrentUser
-                                            ? Colors.blue.shade700
-                                            : Colors.grey.shade700,
-                                        fontWeight: isCurrentUser
-                                            ? FontWeight.bold
-                                            : FontWeight.normal,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }).toList(),
+                        ),
+                      ] else if (remainingWorkers == 0) ...[
+                        SizedBox(height: 8),
+                        Container(
+                          padding:
+                              EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade100,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.green.shade300),
                           ),
-                        ],
-                      ),
-                    ),
-                  ],
+                          child: Row(
+                            children: [
+                              Icon(Icons.check_circle,
+                                  color: Colors.green.shade700, size: 18),
+                              SizedBox(width: 8),
+                              Text(
+                                'Fully staffed',
+                                style: TextStyle(
+                                  color: Colors.green.shade700,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
 
-                  // Expired Warning
-                  if (schedule.isExpired()) ...[
-                    SizedBox(height: 12),
-                    Container(
-                      padding: EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.red.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.red.shade200),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.warning,
-                              color: Colors.red.shade700, size: 20),
-                          SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              'This work has expired. The end date has passed and status is "not done".',
+                SizedBox(height: 12),
+
+                // Assigned Workers List
+                if (assignedEmployeeNames.isNotEmpty) ...[
+                  Container(
+                    padding: EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.groups,
+                                color: Colors.grey.shade700, size: 18),
+                            SizedBox(width: 8),
+                            Text(
+                              'Assigned Workers:',
                               style: TextStyle(
-                                color: Colors.red.shade700,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey.shade700,
+                                fontSize: 14,
                               ),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+                        SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          children: assignedEmployeeNames.map((name) {
+                            bool isCurrentUser = schedule.assignedEmployees[
+                                    assignedEmployeeNames.indexOf(name)] ==
+                                _currentUserUid;
+                            return Container(
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: isCurrentUser
+                                    ? Colors.blue.shade100
+                                    : Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: isCurrentUser
+                                      ? Colors.blue.shade300
+                                      : Colors.grey.shade400,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (isCurrentUser) ...[
+                                    Icon(Icons.person,
+                                        size: 16, color: Colors.blue.shade700),
+                                    SizedBox(width: 4),
+                                  ],
+                                  Text(
+                                    isCurrentUser ? 'You' : name,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: isCurrentUser
+                                          ? Colors.blue.shade700
+                                          : Colors.grey.shade700,
+                                      fontWeight: isCurrentUser
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ],
-              ),
+
+                // Expired Warning
+                if (schedule.isExpired()) ...[
+                  SizedBox(height: 12),
+                  Container(
+                    padding: EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.red.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.warning,
+                            color: Colors.red.shade700, size: 20),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'This work has expired. The end date has passed and status is "not done".',
+                            style: TextStyle(
+                              color: Colors.red.shade700,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
         );
-      }),
+      }).toList(),
     );
   }
 
@@ -1388,8 +1967,15 @@ class _SchedulePageState extends State<SchedulePage> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 16, color: color),
-        SizedBox(width: 8),
+        Container(
+          padding: EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, size: 18, color: color),
+        ),
+        SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1399,15 +1985,17 @@ class _SchedulePageState extends State<SchedulePage> {
                 style: TextStyle(
                   fontSize: 12,
                   color: Colors.grey.shade600,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.3,
                 ),
               ),
+              SizedBox(height: 4),
               Text(
                 value,
                 style: TextStyle(
-                  fontSize: 14,
-                  color: color,
-                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
                 ),
               ),
             ],
@@ -2833,6 +3421,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 // }
 
 class ProfilePage extends StatefulWidget {
+  final bool showAppBar;
+
+  const ProfilePage({super.key, this.showAppBar = true});
+
   @override
   _ProfilePageState createState() => _ProfilePageState();
 }
@@ -3094,6 +3686,187 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
+    Widget bodyContent = _isLoading
+        ? Center(child: CircularProgressIndicator())
+        : userData == null
+            ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.person_off,
+                      size: 80,
+                      color: Colors.grey[400],
+                    ),
+                    SizedBox(height: 20),
+                    Text(
+                      "No profile data found",
+                      style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600),
+                    ),
+                    SizedBox(height: 20),
+                    ElevatedButton.icon(
+                      onPressed: () => _handleLogout(context),
+                      icon: Icon(Icons.logout),
+                      label: Text('Logout'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red[600],
+                        foregroundColor: Colors.white,
+                        padding:
+                            EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : SingleChildScrollView(
+                padding: EdgeInsets.all(20.0),
+                child: Column(
+                  children: [
+                    Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black26,
+                                blurRadius: 10,
+                                spreadRadius: 2,
+                                offset: Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: CircleAvatar(
+                            radius: 75,
+                            backgroundColor: Colors.grey[200],
+                            backgroundImage: _profileImageBytes != null
+                                ? MemoryImage(_profileImageBytes!)
+                                : (_profileImageUrl != null &&
+                                        _profileImageUrl!.isNotEmpty
+                                    ? NetworkImage(_profileImageUrl!)
+                                    : null),
+                            child: (_profileImageUrl == null &&
+                                    _profileImageBytes == null)
+                                ? Icon(Icons.person,
+                                    size: 70, color: Colors.white)
+                                : null,
+                          ),
+                        ),
+                        Positioned(
+                          bottom: 5,
+                          right: 5,
+                          child: GestureDetector(
+                            onTap: _uploadProfilePicture,
+                            child: CircleAvatar(
+                              backgroundColor: Colors.blueAccent,
+                              radius: 25,
+                              child: Icon(Icons.camera_alt,
+                                  color: Colors.white, size: 22),
+                            ),
+                          ),
+                        )
+                      ],
+                    ),
+                    SizedBox(height: 15),
+                    Text(
+                      "${userData?["name"] ?? "Unknown"}",
+                      style: TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black),
+                    ),
+                    SizedBox(height: 8),
+                    Container(
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.blue[50],
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        userData?["email"] ?? "No email provided",
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Colors.blue[900],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 25),
+                    _buildInfoSection("Personal Info", [
+                      _buildInfoRow(
+                          "Qualification", userData!["qualification"]),
+                      _buildInfoRow("Experience", userData!["experience"]),
+                      _buildInfoRow("Age", userData!["age"]),
+                      _buildInfoRow("Date Of Birth", userData!["dob"]),
+                      _buildInfoRow("Whatsapp Number", userData!["whatsapp"]),
+                      _buildInfoRow("Mobile", userData!["mobile"]),
+                      _buildInfoRow("Alternate Mobile", userData!["altMobile"]),
+                      _buildInfoRow(
+                          "Emergency Contact", userData!["emergencyContact"]),
+                      _buildInfoRow("Blood Group", userData!["bloodGroup"]),
+                      _buildInfoRow("Gender", userData!["gender"]),
+                      _buildInfoRow("Father Name", userData!["fatherName"]),
+                      _buildInfoRow("Father Mobile", userData!["fatherMobile"]),
+                      _buildInfoRow("Mother Name", userData!["motherName"]),
+                      _buildInfoRow("Mother Mobile", userData!["motherMobile"]),
+                      _buildInfoRow("Spouse Name", userData!["spouseName"]),
+                      _buildInfoRow("Spouse Mobile", userData!["spouseMobile"]),
+                    ]),
+                    _buildInfoSection2("Address Details", [
+                      _buildInfoRow("Address", userData!["address"]),
+                      _buildInfoRow("District", userData!["district"]),
+                      _buildInfoRow("State", userData!["state"]),
+                      _buildInfoRow("Pincode", userData!["pincode"]),
+                      _buildInfoRow("Native Place", userData!["native"]),
+                    ]),
+                    _buildInfoSection2("Bank Details", [
+                      _buildInfoRow("Bank Name", userData!["bank_name"]),
+                      _buildInfoRow(
+                          "Account Number", userData!["account_number"]),
+                      _buildInfoRow(
+                          "Account Holder Name", userData!["account_holder"]),
+                      _buildInfoRow("IFSC Code", userData!["ifsc"]),
+                    ]),
+                    _buildInfoSection2("Additional info", [
+                      _buildInfoRow("Aadhar Number", userData!["aadhar"]),
+                      _buildInfoRow("EPF Number", userData!["epf"]),
+                      _buildInfoRow("ESI Number", userData!["esi"]),
+                      _buildInfoRow("IFSC Number", userData!["ifsc"]),
+                      _buildInfoRow("PAN Number", userData!["pan"]),
+                      _buildInfoRow("Religion", userData!["religion"]),
+                      _buildInfoRow("Cast", userData!["cast"]),
+                    ]),
+                    SizedBox(height: 30),
+                    ElevatedButton(
+                      onPressed: () => _handleLogout(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        padding:
+                            EdgeInsets.symmetric(horizontal: 40, vertical: 12),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: Text("Log Out",
+                          style: TextStyle(color: Colors.white, fontSize: 18)),
+                    ),
+                  ],
+                ),
+              );
+
+    // If showAppBar is false, just return the body content (for use in bottom nav)
+    if (!widget.showAppBar) {
+      return bodyContent;
+    }
+
+    // Otherwise, wrap in Scaffold with AppBar (for standalone navigation)
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -3101,13 +3874,19 @@ class _ProfilePageState extends State<ProfilePage> {
           'PROFILE',
           style: TextStyle(
             color: Colors.white,
-            fontSize: 20,
+            fontSize: 22,
             fontWeight: FontWeight.bold,
           ),
         ),
-        backgroundColor: Colors.blue[600],
+        backgroundColor: Colors.blue[900],
         elevation: 0,
         centerTitle: true,
+        toolbarHeight: 70,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.only(
+            bottomRight: Radius.circular(30),
+          ),
+        ),
         actions: [
           // Always visible logout button
           IconButton(
@@ -3117,185 +3896,7 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
         ],
       ),
-      body: _isLoading
-          ? Center(child: CircularProgressIndicator())
-          : userData == null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.person_off,
-                        size: 80,
-                        color: Colors.grey[400],
-                      ),
-                      SizedBox(height: 20),
-                      Text(
-                        "No profile data found",
-                        style: TextStyle(
-                            color: Colors.black,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600),
-                      ),
-                      SizedBox(height: 20),
-                      ElevatedButton.icon(
-                        onPressed: () => _handleLogout(context),
-                        icon: Icon(Icons.logout),
-                        label: Text('Logout'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red[600],
-                          foregroundColor: Colors.white,
-                          padding: EdgeInsets.symmetric(
-                              horizontal: 24, vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              : SingleChildScrollView(
-                  padding: EdgeInsets.all(20.0),
-                  child: Column(
-                    children: [
-                      Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          Container(
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black26,
-                                  blurRadius: 10,
-                                  spreadRadius: 2,
-                                  offset: Offset(0, 4),
-                                ),
-                              ],
-                            ),
-                            child: CircleAvatar(
-                              radius: 75,
-                              backgroundColor: Colors.grey[200],
-                              backgroundImage: _profileImageBytes != null
-                                  ? MemoryImage(_profileImageBytes!)
-                                  : (_profileImageUrl != null &&
-                                          _profileImageUrl!.isNotEmpty
-                                      ? NetworkImage(_profileImageUrl!)
-                                      : null),
-                              child: (_profileImageUrl == null &&
-                                      _profileImageBytes == null)
-                                  ? Icon(Icons.person,
-                                      size: 70, color: Colors.white)
-                                  : null,
-                            ),
-                          ),
-                          Positioned(
-                            bottom: 5,
-                            right: 5,
-                            child: GestureDetector(
-                              onTap: _uploadProfilePicture,
-                              child: CircleAvatar(
-                                backgroundColor: Colors.blueAccent,
-                                radius: 25,
-                                child: Icon(Icons.camera_alt,
-                                    color: Colors.white, size: 22),
-                              ),
-                            ),
-                          )
-                        ],
-                      ),
-                      SizedBox(height: 15),
-                      Text(
-                        "${userData?["name"] ?? "Unknown"}",
-                        style: TextStyle(
-                            fontSize: 26,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black),
-                      ),
-                      SizedBox(height: 8),
-                      Container(
-                        padding:
-                            EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.blue[50],
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          userData?["email"] ?? "No email provided",
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.blue[900],
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                      SizedBox(height: 25),
-                      _buildInfoSection("Personal Info", [
-                        _buildInfoRow(
-                            "Qualification", userData!["qualification"]),
-                        _buildInfoRow("Experience", userData!["experience"]),
-                        _buildInfoRow("Age", userData!["age"]),
-                        _buildInfoRow("Date Of Birth", userData!["dob"]),
-                        _buildInfoRow("Whatsapp Number", userData!["whatsapp"]),
-                        _buildInfoRow("Mobile", userData!["mobile"]),
-                        _buildInfoRow(
-                            "Alternate Mobile", userData!["altMobile"]),
-                        _buildInfoRow(
-                            "Emergency Contact", userData!["emergencyContact"]),
-                        _buildInfoRow("Blood Group", userData!["bloodGroup"]),
-                        _buildInfoRow("Gender", userData!["gender"]),
-                        _buildInfoRow("Father Name", userData!["fatherName"]),
-                        _buildInfoRow(
-                            "Father Mobile", userData!["fatherMobile"]),
-                        _buildInfoRow("Mother Name", userData!["motherName"]),
-                        _buildInfoRow(
-                            "Mother Mobile", userData!["motherMobile"]),
-                        _buildInfoRow("Spouse Name", userData!["spouseName"]),
-                        _buildInfoRow(
-                            "Spouse Mobile", userData!["spouseMobile"]),
-                      ]),
-                      _buildInfoSection2("Address Details", [
-                        _buildInfoRow("Address", userData!["address"]),
-                        _buildInfoRow("District", userData!["district"]),
-                        _buildInfoRow("State", userData!["state"]),
-                        _buildInfoRow("Pincode", userData!["pincode"]),
-                        _buildInfoRow("Native Place", userData!["native"]),
-                      ]),
-                      _buildInfoSection2("Bank Details", [
-                        _buildInfoRow("Bank Name", userData!["bank_name"]),
-                        _buildInfoRow(
-                            "Account Number", userData!["account_number"]),
-                        _buildInfoRow(
-                            "Account Holder Name", userData!["account_holder"]),
-                        _buildInfoRow("IFSC Code", userData!["ifsc"]),
-                      ]),
-                      _buildInfoSection2("Additional info", [
-                        _buildInfoRow("Aadhar Number", userData!["aadhar"]),
-                        _buildInfoRow("EPF Number", userData!["epf"]),
-                        _buildInfoRow("ESI Number", userData!["esi"]),
-                        _buildInfoRow("IFSC Number", userData!["ifsc"]),
-                        _buildInfoRow("PAN Number", userData!["pan"]),
-                        _buildInfoRow("Religion", userData!["religion"]),
-                        _buildInfoRow("Cast", userData!["cast"]),
-                      ]),
-                      SizedBox(height: 30),
-                      ElevatedButton(
-                        onPressed: () => _handleLogout(context),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          padding: EdgeInsets.symmetric(
-                              horizontal: 40, vertical: 12),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                        ),
-                        child: Text("Log Out",
-                            style:
-                                TextStyle(color: Colors.white, fontSize: 18)),
-                      ),
-                    ],
-                  ),
-                ),
+      body: bodyContent,
     );
   }
 
