@@ -1,0 +1,117 @@
+// Alternative Firestore Security Rules - More permissive for schedule queries
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Admins collection is uppercase in code: collection("Admins")
+    function isAdmin() {
+      return isSignedIn() &&
+             exists(/databases/$(database)/documents/Admins/$(request.auth.uid));
+    }
+
+    // Resolve the employee's custom UID/EID from uid_mapping/{auth.uid}
+    function hasUidMapping() {
+      return isSignedIn() &&
+             exists(/databases/$(database)/documents/uid_mapping/$(request.auth.uid));
+    }
+
+    function getCustomUid() {
+      return hasUidMapping()
+        ? get(/databases/$(database)/documents/uid_mapping/$(request.auth.uid)).data.customUid
+        : request.auth.uid; // fallback if mapping missing
+    }
+
+    // Helper to check if document ID matches user's Firebase UID or EID
+    function isOwnLocationDoc(docId) {
+      return isSignedIn() && (
+        // Document ID is the user's Firebase UID
+        docId == request.auth.uid ||
+        // Document ID is the user's mapped EID
+        docId == getCustomUid()
+      );
+    }
+
+    // COLLECTION RULES
+
+    // Admins
+    match /Admins/{adminUid} {
+      allow read: if isSignedIn() && request.auth.uid == adminUid;
+      allow create: if isAdmin() || (isSignedIn() && request.auth.uid == adminUid && !exists(/databases/$(database)/documents/Admins/$(adminUid)));
+      allow update, delete: if isAdmin();
+    }
+
+    // Users collection - Allow unauthenticated reads for login
+    match /users/{eid} {
+      allow read: if true; // Allow unauthenticated reads for login flow
+      allow write: if isSignedIn() && getCustomUid() == eid;
+      allow write: if isAdmin();
+    }
+
+    // UID Mapping collection
+    match /uid_mapping/{firebaseUid} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.auth.uid == firebaseUid;
+      allow write: if isAdmin();
+    }
+
+    // Attendance (keyed by EID)
+    match /attendance/{eid} {
+      allow read, write: if isSignedIn() && getCustomUid() == eid;
+      allow read, write: if isAdmin();
+
+      match /dates/{dateId} {
+        allow read, write: if isSignedIn() && getCustomUid() == eid;
+        allow read, write: if isAdmin();
+      }
+    }
+
+    // Live Locations
+    match /live_locations/{docId} {
+      allow read, write: if isOwnLocationDoc(docId);
+      allow read, write: if isAdmin();
+    }
+
+    // Schedule - MOST PERMISSIVE: Allow all authenticated users to read all schedules
+    // This eliminates permission issues while maintaining write security
+    match /schedule/{scheduleId} {
+      // Allow any authenticated user to read any schedule document
+      allow read: if isSignedIn();
+      
+      // Allow any authenticated user to perform collection queries (list operations)
+      allow list: if isSignedIn();
+      
+      // Only admins can write schedules
+      allow write: if isAdmin();
+    }
+
+    // Salary Records (keyed by EID)
+    match /salary_records/{eid} {
+      allow read: if isSignedIn() && getCustomUid() == eid;
+      allow read, write: if isAdmin();
+    }
+
+    // Location tracking records
+    match /location_tracking/{docId} {
+      allow read: if isSignedIn() && resource.data.eid == getCustomUid();
+      allow create: if isSignedIn() && request.resource.data.eid == getCustomUid();
+      allow update: if isSignedIn() && resource.data.eid == getCustomUid() && request.resource.data.eid == getCustomUid();
+      allow read, write: if isAdmin();
+    }
+
+    // Employee lookup by email
+    match /employee_lookup/{email} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

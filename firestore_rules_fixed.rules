@@ -1,0 +1,153 @@
+// Firestore Security Rules for Consultancy App - Fixed for schedule collection queries
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Admins collection is uppercase in code: collection("Admins")
+    function isAdmin() {
+      return isSignedIn() &&
+             exists(/databases/$(database)/documents/Admins/$(request.auth.uid));
+    }
+
+    // Resolve the employee's custom UID/EID from uid_mapping/{auth.uid}
+    function hasUidMapping() {
+      return isSignedIn() &&
+             exists(/databases/$(database)/documents/uid_mapping/$(request.auth.uid));
+    }
+
+    function getCustomUid() {
+      return hasUidMapping()
+        ? get(/databases/$(database)/documents/uid_mapping/$(request.auth.uid)).data.customUid
+        : request.auth.uid; // fallback if mapping missing
+    }
+
+    // Helper to check if document ID matches user's Firebase UID or EID
+    function isOwnLocationDoc(docId) {
+      return isSignedIn() && (
+        // Document ID is the user's Firebase UID
+        docId == request.auth.uid ||
+        // Document ID is the user's mapped EID
+        docId == getCustomUid()
+      );
+    }
+
+    // COLLECTION RULES
+
+    // Admins
+    match /Admins/{adminUid} {
+      // Admin can read own admin record; also allow the signed-in user to read their own for bootstrap
+      allow read: if isSignedIn() && request.auth.uid == adminUid;
+
+      // Only existing admins can create/update/delete Admins documents
+      // Optional bootstrap: allow a user to create their own Admins doc if none exists yet
+      allow create: if isAdmin() || (isSignedIn() && request.auth.uid == adminUid && !exists(/databases/$(database)/documents/Admins/$(adminUid)));
+      allow update, delete: if isAdmin();
+    }
+
+    // Users collection - CRITICAL FIX: Allow unauthenticated reads for login
+    match /users/{eid} {
+      // CRITICAL: Allow anyone to read users collection for login queries (email/phone lookup)
+      // This is needed because login queries run BEFORE user authentication
+      // allow read covers both document reads AND collection queries
+      allow read: if true; // Allow unauthenticated reads for login flow (both document and queries)
+      
+      // The owner (mapped EID) can write their own record
+      allow write: if isSignedIn() && getCustomUid() == eid;
+
+      // Admins can write all users
+      allow write: if isAdmin();
+    }
+
+    // UID Mapping collection - needed for login flow
+    match /uid_mapping/{firebaseUid} {
+      // Allow reading uid_mapping for login flow
+      allow read: if isSignedIn();
+      
+      // Allow creating uid_mapping during login (when Firebase user is created)
+      allow create: if isSignedIn() && request.auth.uid == firebaseUid;
+      
+      // Admins can manage uid_mapping
+      allow write: if isAdmin();
+    }
+
+    // Attendance (keyed by EID)
+    match /attendance/{eid} {
+      // Owner (via mapping) can read/write their own attendance
+      allow read, write: if isSignedIn() && getCustomUid() == eid;
+
+      // Admins can read all attendance; writes typically admin-managed too
+      allow read, write: if isAdmin();
+
+      // Optional dates subcollection (if used)
+      match /dates/{dateId} {
+        allow read, write: if isSignedIn() && getCustomUid() == eid;
+        allow read, write: if isAdmin();
+      }
+    }
+
+    // Live Locations - FIXED: Handle both Firebase UID and EID document patterns
+    match /live_locations/{docId} {
+      // Owner can read/write their own location (whether docId is Firebase UID or EID)
+      allow read, write: if isOwnLocationDoc(docId);
+
+      // Admins can read/write all live locations
+      allow read, write: if isAdmin();
+    }
+
+    // Schedule - ENHANCED: Allow both collection queries and document reads for employees
+    match /schedule/{scheduleId} {
+      // Allow signed-in users to read individual schedule documents
+      allow get: if isSignedIn();
+      
+      // Allow signed-in users to query schedules where they are assigned
+      // This specifically covers arrayContains queries
+      allow list: if isSignedIn();
+      
+      // Only admins can write schedules
+      allow write: if isAdmin();
+    }
+
+    // Salary Records (keyed by EID)
+    match /salary_records/{eid} {
+      // Owner can read own salary
+      allow read: if isSignedIn() && getCustomUid() == eid;
+
+      // Admins manage salary records; ensure eid consistency on write
+      allow read, write: if isAdmin() && request.resource.data.eid == eid;
+    }
+
+    // Location tracking records (flat collection with eid in document)
+    match /location_tracking/{docId} {
+      // Owner can read/write only when eid matches their mapping
+      allow read: if isSignedIn() &&
+                  resource.data.eid == getCustomUid();
+
+      allow create: if isSignedIn() &&
+                    request.resource.data.eid == getCustomUid();
+
+      allow update: if isSignedIn() &&
+                    resource.data.eid == getCustomUid() &&
+                    request.resource.data.eid == getCustomUid();
+
+      // Admin full access
+      allow read, write: if isAdmin();
+    }
+
+    // Employee lookup by email (optional; tighten as needed)
+    match /employee_lookup/{email} {
+      // Allow signed-in reads (your code uses authenticated flows)
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

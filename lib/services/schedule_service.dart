@@ -6,18 +6,42 @@ class ScheduleService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   /// Fetches all schedules where the current user is assigned from schedule collection
+  /// Note: Now checks by Eid instead of UserUID since assignedEmployees contains Eids
   Future<List<ScheduleModel>> getUserSchedules() async {
     try {
-      // Use SessionManager to get current user UID
+      // Use SessionManager to get current user UID and data
       final currentUserUid = await SessionManager.getCurrentUserUid();
       if (currentUserUid == null) {
         throw Exception('User not authenticated');
       }
 
-      print('Current User UID from Session: $currentUserUid');
+      // Get current user's data to extract Eid
+      Map<String, dynamic>? currentUserData =
+          await SessionManager.getCurrentUserData();
+      if (currentUserData == null) {
+        // If cached data is not available, fetch from Firestore
+        DocumentSnapshot userDoc =
+            await _firestore.collection("users").doc(currentUserUid).get();
+
+        if (!userDoc.exists) {
+          throw Exception('User data not found');
+        }
+        currentUserData = userDoc.data() as Map<String, dynamic>;
+      }
+
+      // Extract Eid from user data
+      String? currentUserEid = currentUserData['Eid'];
+      if (currentUserEid == null || currentUserEid.isEmpty) {
+        print('⚠️ Warning: No Eid found for user UID: $currentUserUid');
+        return []; // Return empty list if Eid is not found
+      }
+
+      print('Current User Eid from Session: $currentUserEid');
 
       // Step 1: Get all schedule records to check permissions and find user schedules
       try {
+        print(
+            '🔍 SCHEDULE SERVICE: Attempting to read all schedule documents...');
         final allScheduleSnapshot =
             await _firestore.collection('schedule').get();
         print(
@@ -29,7 +53,7 @@ class ScheduleService {
         for (var doc in allScheduleSnapshot.docs) {
           final data = doc.data();
 
-          // Get assignedEmployees array
+          // Get assignedEmployees array (now contains Eids)
           List<String> assignedEmployees = [];
           if (data['assignedEmployees'] != null) {
             assignedEmployees = List<String>.from(data['assignedEmployees']);
@@ -38,13 +62,14 @@ class ScheduleService {
           print(
               'Schedule ${doc.id}: assignedEmployees = $assignedEmployees, data keys: ${data.keys.toList()}');
 
-          // Check if current user UID is in assignedEmployees
-          if (assignedEmployees.contains(currentUserUid)) {
+          // Check if current user Eid is in assignedEmployees
+          if (assignedEmployees.contains(currentUserEid)) {
             try {
               // Use direct ScheduleModel.fromFirestore since this is schedule collection
               final schedule = ScheduleModel.fromFirestore(doc);
               userSchedules.add(schedule);
-              print('Added schedule record ${doc.id} for user $currentUserUid');
+              print(
+                  'Added schedule record ${doc.id} for user Eid $currentUserEid');
               print(
                   'Schedule dates: ${schedule.startDate} to ${schedule.endDate}');
             } catch (e) {
@@ -54,33 +79,43 @@ class ScheduleService {
         }
 
         print(
-            'Found ${userSchedules.length} schedules for user $currentUserUid');
+            'Found ${userSchedules.length} schedules for user Eid $currentUserEid');
 
         // Sort by startDate
         userSchedules.sort((a, b) => a.startDate.compareTo(b.startDate));
 
         return userSchedules;
       } catch (e) {
-        print('Error accessing schedule collection: $e');
+        print(
+            '⚠️ SCHEDULE SERVICE: Broad collection read failed (expected due to permissions): $e');
+        print(
+            '🔄 SCHEDULE SERVICE: Falling back to targeted arrayContains query...');
 
         // Fallback: Try to query with where clause
         try {
           final querySnapshot = await _firestore
               .collection('schedule')
-              .where('assignedEmployees', arrayContains: currentUserUid)
+              .where('assignedEmployees', arrayContains: currentUserEid)
               .get();
 
           print(
-              'Found ${querySnapshot.docs.length} schedule records using query for UID: $currentUserUid');
+              '✅ SCHEDULE SERVICE: arrayContains query successful! Found ${querySnapshot.docs.length} schedule records for Eid: $currentUserEid');
 
           final schedules = querySnapshot.docs
               .map((doc) => ScheduleModel.fromFirestore(doc))
               .toList();
 
+          // Log details of found schedules
+          for (var schedule in schedules) {
+            print(
+                '📋 Found schedule: ${schedule.id} - ${schedule.branchName} (${schedule.startDate} to ${schedule.endDate})');
+          }
+
           schedules.sort((a, b) => a.startDate.compareTo(b.startDate));
           return schedules;
         } catch (queryError) {
-          print('Schedule query also failed: $queryError');
+          print(
+              '❌ SCHEDULE SERVICE: arrayContains query also failed: $queryError');
           return []; // Return empty list instead of throwing error
         }
       }
@@ -90,24 +125,32 @@ class ScheduleService {
     }
   }
 
-  /// Fetches user details for multiple user IDs
-  Future<Map<String, UserModel>> getUsersDetails(List<String> userIds) async {
+  /// Fetches user details for multiple user IDs or Eids
+  /// Note: Now accepts Eids since assignedEmployees contains Eids
+  Future<Map<String, UserModel>> getUsersDetails(List<String> eids) async {
     try {
-      if (userIds.isEmpty) return {};
+      if (eids.isEmpty) return {};
 
       // Firebase 'whereIn' has a limit of 10 items, so we need to chunk the requests
       Map<String, UserModel> allUsers = {};
 
-      for (int i = 0; i < userIds.length; i += 10) {
-        final chunk = userIds.skip(i).take(10).toList();
+      for (int i = 0; i < eids.length; i += 10) {
+        final chunk = eids.skip(i).take(10).toList();
 
+        // Query by Eid field instead of document ID since assignedEmployees contains Eids
         final querySnapshot = await _firestore
             .collection('users')
-            .where(FieldPath.documentId, whereIn: chunk)
+            .where('Eid', whereIn: chunk)
             .get();
 
         for (var doc in querySnapshot.docs) {
-          allUsers[doc.id] = UserModel.fromFirestore(doc);
+          final userModel = UserModel.fromFirestore(doc);
+          // Key by Eid for easy lookup
+          if (userModel.eid != null) {
+            allUsers[userModel.eid!] = userModel;
+          }
+          // Also key by document ID as fallback
+          allUsers[doc.id] = userModel;
         }
       }
 
@@ -119,14 +162,28 @@ class ScheduleService {
   }
 
   /// Gets schedules for a specific date
+  /// Note: Now checks by Eid instead of UserUID
   Future<List<ScheduleModel>> getSchedulesForDate(
       List<ScheduleModel> allSchedules, DateTime selectedDate) async {
     final currentUserUid = await SessionManager.getCurrentUserUid();
     if (currentUserUid == null) return [];
 
+    // Get current user's Eid
+    Map<String, dynamic>? currentUserData =
+        await SessionManager.getCurrentUserData();
+    if (currentUserData == null) {
+      DocumentSnapshot userDoc =
+          await _firestore.collection("users").doc(currentUserUid).get();
+      if (!userDoc.exists) return [];
+      currentUserData = userDoc.data() as Map<String, dynamic>;
+    }
+
+    String? currentUserEid = currentUserData['Eid'];
+    if (currentUserEid == null || currentUserEid.isEmpty) return [];
+
     return allSchedules.where((schedule) {
-      // Check if current user is assigned to this schedule
-      if (!schedule.assignedEmployees.contains(currentUserUid)) {
+      // Check if current user Eid is assigned to this schedule
+      if (!schedule.assignedEmployees.contains(currentUserEid)) {
         return false;
       }
 
@@ -136,23 +193,40 @@ class ScheduleService {
   }
 
   /// Checks if a specific date has any scheduled work for the current user
+  /// Note: Now checks by Eid instead of UserUID
   Future<bool> hasScheduleForDate(
       List<ScheduleModel> allSchedules, DateTime date) async {
     final currentUserUid = await SessionManager.getCurrentUserUid();
     if (currentUserUid == null) return false;
 
+    // Get current user's Eid
+    Map<String, dynamic>? currentUserData =
+        await SessionManager.getCurrentUserData();
+    if (currentUserData == null) {
+      DocumentSnapshot userDoc =
+          await _firestore.collection("users").doc(currentUserUid).get();
+      if (!userDoc.exists) return false;
+      currentUserData = userDoc.data() as Map<String, dynamic>;
+    }
+
+    String? currentUserEid = currentUserData['Eid'];
+    if (currentUserEid == null || currentUserEid.isEmpty) return false;
+
     return allSchedules.any((schedule) {
-      return schedule.assignedEmployees.contains(currentUserUid) &&
+      return schedule.assignedEmployees.contains(currentUserEid) &&
           schedule.isScheduledForDate(date);
     });
   }
 
   /// Gets the names of assigned employees for a schedule
+  /// Note: assignedEmployees now contains Eids, not UIDs
   List<String> getAssignedEmployeeNames(
       ScheduleModel schedule, Map<String, UserModel> usersMap) {
-    return schedule.assignedEmployees
-        .map((uid) => usersMap[uid]?.name ?? 'Unknown')
-        .toList();
+    return schedule.assignedEmployees.map((eid) {
+      // UsersMap is now keyed by Eid, so we can directly lookup
+      final user = usersMap[eid];
+      return user?.name ?? 'Unknown';
+    }).toList();
   }
 
   /// Gets all unique user IDs from all schedules

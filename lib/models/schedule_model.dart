@@ -145,6 +145,7 @@ class UserModel {
   final String? phoneNumber;
   final String? role;
   final String? department;
+  final String? eid; // Employee ID field
 
   UserModel({
     required this.id,
@@ -153,6 +154,7 @@ class UserModel {
     this.phoneNumber,
     this.role,
     this.department,
+    this.eid,
   });
 
   factory UserModel.fromFirestore(DocumentSnapshot doc) {
@@ -165,6 +167,7 @@ class UserModel {
       phoneNumber: data['phoneNumber'],
       role: data['role'],
       department: data['department'],
+      eid: data['Eid'], // Get Eid field from document
     );
   }
 }

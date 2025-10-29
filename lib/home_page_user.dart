@@ -832,6 +832,7 @@ class _SchedulePageState extends State<SchedulePage> {
   Map<String, UserModel> _usersMap = {};
   final ScheduleService _scheduleService = ScheduleService();
   String? _currentUserUid;
+  String? _currentUserEid; // Store current user's Eid for schedule filtering
 
   bool _isLoading = true;
   String? _errorMessage;
@@ -852,32 +853,130 @@ class _SchedulePageState extends State<SchedulePage> {
     });
 
     try {
-      // Use SessionManager instead of FirebaseAuth
+      print('🔍 SCHEDULE DEBUG: Starting _loadScheduleData...');
+
+      // Use SessionManager to get current user UID and data
       final currentUserUid = await SessionManager.getCurrentUserUid();
       if (currentUserUid == null) {
+        print('❌ SCHEDULE DEBUG: No current user UID found');
         setState(() {
           _isLoading = false;
           _errorMessage = 'User not authenticated';
         });
         return;
       }
+      print('✅ SCHEDULE DEBUG: Current user UID: $currentUserUid');
 
+      // Get current user's data to extract Eid
+      Map<String, dynamic>? currentUserData =
+          await SessionManager.getCurrentUserData();
+      if (currentUserData == null) {
+        print(
+            '⚠️ SCHEDULE DEBUG: No cached user data, fetching from Firestore...');
+        // If cached data is not available, fetch from Firestore
+        DocumentSnapshot userDoc = await FirebaseFirestore.instance
+            .collection("users")
+            .doc(currentUserUid)
+            .get();
+
+        if (!userDoc.exists) {
+          print('❌ SCHEDULE DEBUG: User document does not exist in Firestore');
+          setState(() {
+            _isLoading = false;
+            _errorMessage = 'User data not found';
+          });
+          return;
+        }
+        currentUserData = userDoc.data() as Map<String, dynamic>;
+        print(
+            '✅ SCHEDULE DEBUG: Fetched user data from Firestore: ${currentUserData.keys.toList()}');
+      } else {
+        print(
+            '✅ SCHEDULE DEBUG: Using cached user data: ${currentUserData.keys.toList()}');
+      }
+
+      // Extract Eid from user data
+      String? currentUserEid = currentUserData['Eid'];
+      if (currentUserEid == null || currentUserEid.isEmpty) {
+        final availableFields = currentUserData.keys.toList();
+        final eidValue = currentUserData['Eid'];
+        print(
+            '❌ SCHEDULE DEBUG: No Eid found in user data. Available fields: $availableFields');
+        print('❌ SCHEDULE DEBUG: Eid field value: $eidValue');
+        setState(() {
+          _isLoading = false;
+          _errorMessage =
+              'Employee ID (Eid) not found in user data. Available fields: $availableFields';
+        });
+        return;
+      }
+
+      print('✅ SCHEDULE DEBUG: Current user Eid: $currentUserEid');
+
+      // Call schedule service to get data
+      print('🔍 SCHEDULE DEBUG: Calling refreshScheduleData...');
       final data = await _scheduleService.refreshScheduleData();
+
+      final allSchedules = data['schedules'] as List<ScheduleModel>;
+      final usersMap = data['usersMap'] as Map<String, UserModel>;
+
+      print(
+          '✅ SCHEDULE DEBUG: Retrieved ${allSchedules.length} total schedules from service');
+      print('✅ SCHEDULE DEBUG: Retrieved ${usersMap.length} user records');
+
+      // Debug: Show some sample schedule data
+      if (allSchedules.isNotEmpty) {
+        final firstSchedule = allSchedules.first;
+        print('📋 SCHEDULE DEBUG: Sample schedule:');
+        print('   - ID: ${firstSchedule.id}');
+        print('   - Branch: ${firstSchedule.branchName}');
+        print('   - Assigned Employees: ${firstSchedule.assignedEmployees}');
+        print('   - Start Date: ${firstSchedule.startDate}');
+        print('   - End Date: ${firstSchedule.endDate}');
+        print('   - Status: ${firstSchedule.status}');
+      }
+
+      // Filter schedules for current user by checking if their Eid is in assignedEmployees
+      final userSchedules = allSchedules.where((schedule) {
+        final isAssigned = schedule.assignedEmployees.contains(currentUserEid);
+        if (isAssigned) {
+          print(
+              '✅ SCHEDULE DEBUG: Found matching schedule ${schedule.id} for Eid $currentUserEid');
+        }
+        return isAssigned;
+      }).toList()
+        ..sort((a, b) => a.startDate.compareTo(b.startDate));
+
+      print(
+          '✅ SCHEDULE DEBUG: Filtered ${userSchedules.length} schedules for Eid: $currentUserEid');
+
+      // Debug: If no schedules found, show all assignedEmployees arrays for debugging
+      if (userSchedules.isEmpty && allSchedules.isNotEmpty) {
+        print(
+            '⚠️ SCHEDULE DEBUG: No schedules found for current user. Checking all assignedEmployees arrays:');
+        for (int i = 0; i < allSchedules.length && i < 5; i++) {
+          final schedule = allSchedules[i];
+          print(
+              '   Schedule ${schedule.id}: assignedEmployees = ${schedule.assignedEmployees}');
+        }
+        print(
+            '🔍 SCHEDULE DEBUG: Looking for Eid: "$currentUserEid" (length: ${currentUserEid.length})');
+      }
 
       setState(() {
         _currentUserUid = currentUserUid;
-        _allSchedules = data['schedules'] as List<ScheduleModel>;
-        _usersMap = data['usersMap'] as Map<String, UserModel>;
-
-        // Filter schedules for current user
-        _userSchedules = _allSchedules.where((schedule) {
-          return schedule.assignedEmployees.contains(currentUserUid);
-        }).toList()
-          ..sort((a, b) => a.startDate.compareTo(b.startDate));
-
+        _currentUserEid = currentUserEid; // Store Eid for filtering
+        _allSchedules = allSchedules;
+        _usersMap = usersMap;
+        _userSchedules = userSchedules;
         _isLoading = false;
       });
-    } catch (e) {
+
+      print('✅ SCHEDULE DEBUG: _loadScheduleData completed successfully');
+    } catch (e, stackTrace) {
+      print('❌ SCHEDULE DEBUG: Error in _loadScheduleData: $e');
+      print('❌ SCHEDULE DEBUG: Stack trace: $stackTrace');
+
       setState(() {
         _isLoading = false;
         _errorMessage = e.toString();
@@ -1525,8 +1624,8 @@ class _SchedulePageState extends State<SchedulePage> {
       children: schedules.map((schedule) {
         final assignedEmployeeNames =
             _scheduleService.getAssignedEmployeeNames(schedule, _usersMap);
-        final isAssignedToCurrentUser =
-            schedule.assignedEmployees.contains(_currentUserUid);
+        final isAssignedToCurrentUser = _currentUserEid != null &&
+            schedule.assignedEmployees.contains(_currentUserEid);
 
         // Calculate remaining workers needed
         final remainingWorkers =
@@ -1877,10 +1976,17 @@ class _SchedulePageState extends State<SchedulePage> {
                         Wrap(
                           spacing: 8,
                           runSpacing: 4,
-                          children: assignedEmployeeNames.map((name) {
-                            bool isCurrentUser = schedule.assignedEmployees[
-                                    assignedEmployeeNames.indexOf(name)] ==
-                                _currentUserUid;
+                          children: assignedEmployeeNames
+                              .asMap()
+                              .entries
+                              .map((entry) {
+                            int index = entry.key;
+                            String name = entry.value;
+                            // Check if the Eid at this index matches current user's Eid
+                            bool isCurrentUser = _currentUserEid != null &&
+                                index < schedule.assignedEmployees.length &&
+                                schedule.assignedEmployees[index] ==
+                                    _currentUserEid;
                             return Container(
                               padding: EdgeInsets.symmetric(
                                   horizontal: 10, vertical: 6),
