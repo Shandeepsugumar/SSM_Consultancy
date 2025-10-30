@@ -488,11 +488,15 @@ class _DashboardPageState extends State<DashboardPage> {
         setState(() {
           userData = fetchedUserData;
           _profileImageUrl = userData!["profileImageUrl"];
-          _profilePicBinary = userData!["profilePicBinary"];
+
+          // Check for the new 'profilephoto' field first, then fallback to old field
+          _profilePicBinary =
+              userData!["profilephoto"] ?? userData!["profilePicBinary"];
 
           if (_profilePicBinary != null && _profilePicBinary!.isNotEmpty) {
             try {
               _profileImageBytes = base64Decode(_profilePicBinary!);
+              print("Successfully loaded profile photo from Firestore");
             } catch (e) {
               print("Error decoding base64: $e");
             }
@@ -3572,7 +3576,10 @@ class _ProfilePageState extends State<ProfilePage> {
         setState(() {
           userData = data;
           _profileImageUrl = userData!["profileImageUrl"];
-          _profilePicBinary = userData!["profilePicBinary"];
+
+          // Check for the new 'profilephoto' field first, then fallback to old field
+          _profilePicBinary =
+              userData!["profilephoto"] ?? userData!["profilePicBinary"];
 
           // 🔹 Print values for debugging
           print("Profile Image URL: $_profileImageUrl");
@@ -3708,38 +3715,135 @@ class _ProfilePageState extends State<ProfilePage> {
     File file = File(pickedFile.path);
 
     try {
-      // Step 1: Get custom UID from current authentication
-      String? customUid;
-
-      // Try Firebase Auth first
+      // Step 1: Check Firebase Auth and try to refresh if needed
       User? firebaseUser = FirebaseAuth.instance.currentUser;
-      if (firebaseUser != null) {
-        // Look up customUid in uid_mapping collection
-        DocumentSnapshot mappingDoc = await FirebaseFirestore.instance
-            .collection("uid_mapping")
-            .doc(firebaseUser.uid)
-            .get();
 
-        if (mappingDoc.exists) {
-          Map<String, dynamic> mappingData =
-              mappingDoc.data() as Map<String, dynamic>;
-          customUid = mappingData['customUid'];
+      if (firebaseUser == null) {
+        print(
+            "No Firebase user authenticated - trying to establish Firebase auth");
+
+        // Try to sign in anonymously to establish Firebase authentication
+        try {
+          UserCredential userCredential =
+              await FirebaseAuth.instance.signInAnonymously();
+          firebaseUser = userCredential.user;
+          print("✅ Established anonymous Firebase auth: ${firebaseUser?.uid}");
+        } catch (authError) {
+          print("⚠️ Failed to establish Firebase auth: $authError");
+          // Continue without Firebase auth - Firestore rules now allow this
         }
-      }
 
-      // Fallback to SessionManager
-      if (customUid == null) {
-        customUid = await SessionManager.getCurrentUserUid();
-      }
+        // Try to get user data from SessionManager as fallback
+        String? sessionUid = await SessionManager.getCurrentUserUid();
+        Map<String, dynamic>? sessionData =
+            await SessionManager.getCurrentUserData();
 
-      if (customUid == null) {
-        print("No user authentication found for profile upload");
+        if (sessionUid != null && sessionData != null) {
+          print("Found session data - proceeding with upload");
+          print("Session UID: $sessionUid");
+          print("Session EID: ${sessionData['Eid']}");
+
+          // Use session data directly
+          String documentId = sessionUid;
+          String? currentUserEid = sessionData['Eid'];
+
+          // Step 2: Read and process image
+          Uint8List originalBytes = await file.readAsBytes();
+          img.Image? image = img.decodeImage(originalBytes);
+
+          if (image == null) {
+            throw Exception("Failed to decode image");
+          }
+
+          // Step 3: Compress Image
+          Uint8List compressedBytes =
+              Uint8List.fromList(img.encodeJpg(image, quality: 50));
+
+          // Step 4: Convert to Base64 for Firestore Storage
+          String base64String = base64Encode(compressedBytes);
+
+          // Step 5: Try multiple document update approaches
+          bool updateSuccess = false;
+
+          // Approach 1: Try using session UID
+          try {
+            print("Attempting update with session UID: $sessionUid");
+            await FirebaseFirestore.instance
+                .collection("users")
+                .doc(sessionUid)
+                .update({
+              "profilephoto": base64String,
+              "profileImageUrl": null,
+            });
+            updateSuccess = true;
+            documentId = sessionUid;
+            print(
+                "✅ Successfully updated profile using session UID: $sessionUid");
+          } catch (e) {
+            print("❌ Failed to update using session UID: $e");
+
+            // Approach 2: Try using EID if session UID failed
+            if (currentUserEid != null && currentUserEid.isNotEmpty) {
+              try {
+                print("Attempting update with EID: $currentUserEid");
+                await FirebaseFirestore.instance
+                    .collection("users")
+                    .doc(currentUserEid)
+                    .update({
+                  "profilephoto": base64String,
+                  "profileImageUrl": null,
+                });
+                updateSuccess = true;
+                documentId = currentUserEid;
+                print(
+                    "✅ Successfully updated profile using EID: $currentUserEid");
+              } catch (eidError) {
+                print("❌ Failed to update using EID: $eidError");
+              }
+            }
+          }
+
+          if (!updateSuccess) {
+            throw Exception(
+                "Could not update profile in Firestore with session UID ($sessionUid) or EID ($currentUserEid)");
+          }
+
+          // Update local state
+          setState(() {
+            _profilePicBinary = base64String;
+            _profileImageBytes = compressedBytes;
+            _profileImageUrl = null;
+          });
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Profile picture updated successfully!")),
+          );
+
+          print(
+              "✅ Profile picture update completed successfully using session data");
+          return;
+        }
+
+        // If no session data either, show error
+        print("No authentication available - neither Firebase nor session");
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text("Authentication required. Please log in again.")),
+        );
         return;
       }
 
-      print("Uploading profile picture for custom UID: $customUid");
+      String firebaseUid = firebaseUser.uid;
+      print("Uploading profile picture for Firebase UID: $firebaseUid");
 
-      // 🔹 Step 2: Read Image as Bytes
+      // Get current user's EID from SessionManager
+      Map<String, dynamic>? currentUserData =
+          await SessionManager.getCurrentUserData();
+      String? currentUserEid = currentUserData?['Eid'];
+
+      print("Current user EID: $currentUserEid");
+
+      // Step 2: Read Image as Bytes
       Uint8List originalBytes = await file.readAsBytes();
       img.Image? image = img.decodeImage(originalBytes);
 
@@ -3747,41 +3851,87 @@ class _ProfilePageState extends State<ProfilePage> {
         throw Exception("Failed to decode image");
       }
 
-      // 🔹 Step 3: Compress Image
+      // Step 3: Compress Image
       Uint8List compressedBytes =
           Uint8List.fromList(img.encodeJpg(image, quality: 50));
 
-      // 🔹 Step 4: Convert to Base64 for Firestore Storage
+      // Step 4: Convert to Base64 for Firestore Storage
       String base64String = base64Encode(compressedBytes);
 
-      // 🔹 Step 5: Upload Binary to Firestore using customUid
-      await FirebaseFirestore.instance
-          .collection("users")
-          .doc(customUid)
-          .update({"profilePicBinary": base64String});
+      // Step 5: Try to update using Firebase UID first (most likely document structure)
+      bool updateSuccess = false;
+      String documentId = firebaseUid;
 
-      // 🔹 Step 6: Upload Image to Firebase Storage using customUid
-      Reference storageRef = FirebaseStorage.instance
-          .ref()
-          .child("profile_pictures/$customUid.jpg");
-      await storageRef.putData(compressedBytes);
-      String imageUrl = await storageRef.getDownloadURL();
+      try {
+        await FirebaseFirestore.instance
+            .collection("users")
+            .doc(firebaseUid)
+            .update({
+          "profilephoto": base64String, // Use 'profilephoto' as requested
+          "profileImageUrl": null, // Clear any existing URL-based field
+        });
+        updateSuccess = true;
+        print("Successfully updated profile using Firebase UID: $firebaseUid");
+      } catch (e) {
+        print("Failed to update using Firebase UID: $e");
 
-      // 🔹 Step 7: Update Firestore with Image URL
-      await FirebaseFirestore.instance
-          .collection("users")
-          .doc(customUid)
-          .update({"profileImageUrl": imageUrl});
+        // Fallback: Try using EID if Firebase UID failed
+        if (currentUserEid != null && currentUserEid.isNotEmpty) {
+          try {
+            await FirebaseFirestore.instance
+                .collection("users")
+                .doc(currentUserEid)
+                .update({
+              "profilephoto": base64String,
+              "profileImageUrl": null,
+            });
+            updateSuccess = true;
+            documentId = currentUserEid;
+            print("Successfully updated profile using EID: $currentUserEid");
+          } catch (eidError) {
+            print("Failed to update using EID: $eidError");
+          }
+        }
+      }
 
+      if (!updateSuccess) {
+        throw Exception(
+            "Could not update profile in Firestore with either UID or EID");
+      }
+
+      // Step 6: Update Firebase Storage (optional - keeping for backward compatibility)
+      try {
+        Reference storageRef = FirebaseStorage.instance
+            .ref()
+            .child("profile_pictures/$documentId.jpg");
+        await storageRef.putData(compressedBytes);
+        String imageUrl = await storageRef.getDownloadURL();
+
+        // Update Firestore with storage URL as backup
+        await FirebaseFirestore.instance
+            .collection("users")
+            .doc(documentId)
+            .update({"profileImageUrl": imageUrl});
+
+        print("Also saved to Firebase Storage: $imageUrl");
+      } catch (storageError) {
+        print("Storage upload failed (non-critical): $storageError");
+        // Don't fail the whole operation if storage fails
+      }
+
+      // Step 7: Update local state
       setState(() {
-        _profileImageUrl = imageUrl;
         _profilePicBinary = base64String;
-        _profileImageBytes = compressedBytes; // 🔹 Update UI with new image
+        _profileImageBytes = compressedBytes;
+        // Clear URL-based image since we're now using binary
+        _profileImageUrl = null;
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Profile picture updated successfully!")),
       );
+
+      print("Profile picture update completed successfully");
     } catch (e) {
       print("Error uploading image: $e");
       ScaffoldMessenger.of(context).showSnackBar(

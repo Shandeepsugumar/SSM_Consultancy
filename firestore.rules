@@ -49,15 +49,18 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
-    // Users collection - MOST PERMISSIVE: Allow profile updates even without Firebase Auth
-    match /users/{docId} {
-      // Allow anyone to read users collection for login queries (email/phone lookup)
-      allow read: if true;
+    // Users collection - CRITICAL FIX: Allow unauthenticated reads for login
+    match /users/{eid} {
+      // CRITICAL: Allow anyone to read users collection for login queries (email/phone lookup)
+      // This is needed because login queries run BEFORE user authentication
+      // allow read covers both document reads AND collection queries
+      allow read: if true; // Allow unauthenticated reads for login flow (both document and queries)
       
-      // TEMPORARY FIX: Allow anyone to write user profiles
-      // This is very permissive but ensures profile updates work when Firebase Auth is not maintained
-      // TODO: Implement proper session-based authentication validation
-      allow write: if true;
+      // The owner (mapped EID) can write their own record
+      allow write: if isSignedIn() && getCustomUid() == eid;
+
+      // Admins can write all users
+      allow write: if isAdmin();
     }
 
     // UID Mapping collection - needed for login flow
