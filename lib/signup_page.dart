@@ -31,6 +31,7 @@ class _FirstPageState extends State<FirstPage> {
   final TextEditingController mobileController = TextEditingController();
   final TextEditingController altMobileController = TextEditingController();
   final TextEditingController whatsappController = TextEditingController();
+  final TextEditingController branchNameController = TextEditingController();
 
   String selectedGender = "";
 
@@ -83,6 +84,7 @@ class _FirstPageState extends State<FirstPage> {
             mobile: mobileController.text,
             altMobile: altMobileController.text,
             whatsapp: whatsappController.text,
+            branchName: branchNameController.text,
             cameras: [],
           ),
         ),
@@ -294,6 +296,8 @@ class _FirstPageState extends State<FirstPage> {
                       altMobileController, false, null),
                   _buildTextField(
                       "WhatsApp Number", whatsappController, false, null),
+                  _buildTextField("Branch Name", branchNameController, true,
+                      _validateRequired),
 
                   SizedBox(height: 30),
 
@@ -463,7 +467,8 @@ class SecondPage extends StatefulWidget {
       pincode,
       mobile,
       altMobile,
-      whatsapp;
+      whatsapp,
+      branchName;
 
   SecondPage({
     required this.cameras,
@@ -480,6 +485,7 @@ class SecondPage extends StatefulWidget {
     required this.mobile,
     required this.altMobile,
     required this.whatsapp,
+    required this.branchName,
     Key? key,
   }) : super(key: key);
 
@@ -617,6 +623,7 @@ class _SecondPageState extends State<SecondPage> {
             mobile: widget.mobile,
             altMobile: widget.altMobile,
             whatsapp: widget.whatsapp,
+            branchName: widget.branchName,
             native: nativeController.text,
             religion: religionController.text,
             cast: castController.text,
@@ -944,7 +951,8 @@ class ThirdPage extends StatefulWidget {
       pincode,
       mobile,
       altMobile,
-      whatsapp;
+      whatsapp,
+      branchName;
   final String native,
       religion,
       cast,
@@ -974,6 +982,7 @@ class ThirdPage extends StatefulWidget {
     required this.mobile,
     required this.altMobile,
     required this.whatsapp,
+    required this.branchName,
     required this.native,
     required this.religion,
     required this.cast,
@@ -1238,6 +1247,7 @@ class _ThirdPageState extends State<ThirdPage> {
           "phone": widget.mobile, // Also store as phone for login
           "altMobile": widget.altMobile,
           "whatsapp": widget.whatsapp,
+          "branchName": widget.branchName,
           "native": widget.native,
           "religion": widget.religion,
           "cast": widget.cast,

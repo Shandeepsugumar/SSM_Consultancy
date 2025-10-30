@@ -440,437 +440,397 @@ class _LoginPageState extends State<LoginPage> {
     return Scaffold(
       resizeToAvoidBottomInset: true,
       body: SafeArea(
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.blue[50]!,
-                Colors.blue[100]!,
-                Colors.white,
-              ],
-            ),
-          ),
-          child: Scrollbar(
-            thumbVisibility: true,
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: 20.0,
-                  right: 20.0,
-                  top: 20.0,
-                  bottom: MediaQuery.of(context).viewInsets.bottom + 20.0,
+        child: Stack(
+          children: [
+            // Main login content (leave as is below, this inserts the button over everything)
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Colors.blue[50]!,
+                    Colors.blue[100]!,
+                    Colors.white,
+                  ],
                 ),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const SizedBox(height: 20),
+              ),
+              child: Scrollbar(
+                thumbVisibility: true,
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      left: 20.0,
+                      right: 20.0,
+                      top: 20.0,
+                      bottom: MediaQuery.of(context).viewInsets.bottom + 20.0,
+                    ),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const SizedBox(height: 20),
 
-                      // Logo with enhanced styling
-                      Container(
-                        padding: EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.blue.withOpacity(0.1),
-                              blurRadius: 20,
-                              offset: Offset(0, 10),
+                          // Logo with enhanced styling
+                          Container(
+                            padding: EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.blue.withOpacity(0.1),
+                                  blurRadius: 20,
+                                  offset: Offset(0, 10),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                        child:
-                            Image.asset('assets/login_page.webp', height: 120),
-                      ),
+                            child: Image.asset('assets/login_page.webp',
+                                height: 120),
+                          ),
 
-                      const SizedBox(height: 40),
+                          const SizedBox(height: 40),
 
-                      // Title with enhanced styling
-                      Container(
-                        padding:
-                            EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(15),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.blue.withOpacity(0.1),
-                              blurRadius: 10,
-                              offset: Offset(0, 5),
+                          // Title with enhanced styling
+                          Container(
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 20, vertical: 15),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(15),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.blue.withOpacity(0.1),
+                                  blurRadius: 10,
+                                  offset: Offset(0, 5),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                        child: Column(
-                          children: [
-                            Text(
-                              _currentAuthMode == AuthMode.employee
-                                  ? 'Employee Login'
-                                  : 'Admin Login',
-                              style: TextStyle(
-                                fontSize: 28,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.blue[800],
-                              ),
+                            child: Column(
+                              children: [
+                                Text(
+                                  _currentAuthMode == AuthMode.employee
+                                      ? 'Employee Login'
+                                      : 'Admin Login',
+                                  style: TextStyle(
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.blue[800],
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  _currentAuthMode == AuthMode.employee
+                                      ? 'Welcome To SSM. Login with Email or Mobile Number'
+                                      : 'Admin Access - Login with Email',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey[600],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                              _currentAuthMode == AuthMode.employee
-                                  ? 'Welcome To SSM. Login with Email or Mobile Number'
-                                  : 'Admin Access - Login with Email',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey[600],
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 30),
+                          ),
+                          const SizedBox(height: 30),
 
-                      // Auth Mode Toggle Button
-                      Container(
-                        width: double.infinity,
-                        margin: EdgeInsets.only(bottom: 20),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Container(
-                              decoration: BoxDecoration(
-                                color: Colors.grey[50],
-                                borderRadius: BorderRadius.circular(25),
-                                border: Border.all(color: Colors.blue[200]!),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  GestureDetector(
-                                    onTap: () {
-                                      if (_currentAuthMode !=
-                                          AuthMode.employee) {
-                                        _toggleAuthMode();
-                                      }
-                                    },
-                                    child: Container(
-                                      padding: EdgeInsets.symmetric(
-                                          horizontal: 20, vertical: 10),
-                                      decoration: BoxDecoration(
-                                        color: _currentAuthMode ==
-                                                AuthMode.employee
-                                            ? Colors.blue[600]
-                                            : Colors.transparent,
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                      child: Text(
-                                        'Employee',
-                                        style: TextStyle(
-                                          color: _currentAuthMode ==
-                                                  AuthMode.employee
-                                              ? Colors.white
-                                              : Colors.blue[600],
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 14,
-                                        ),
-                                      ),
+                          // Auth Mode Toggle Button
+                          SizedBox.shrink(),
+                          const SizedBox(height: 20),
+
+                          // Form Container
+                          Container(
+                            padding: EdgeInsets.all(25),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.blue.withOpacity(0.1),
+                                  blurRadius: 20,
+                                  offset: Offset(0, 10),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              children: [
+                                // Email/Mobile Field
+                                TextFormField(
+                                  controller: _emailOrPhoneController,
+                                  keyboardType: TextInputType.emailAddress,
+                                  decoration: InputDecoration(
+                                    labelText: 'Email or Mobile Number',
+                                    hintText:
+                                        'Enter email or 10-digit mobile number',
+                                    filled: true,
+                                    fillColor: Colors.grey[50],
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(15),
+                                      borderSide:
+                                          BorderSide(color: Colors.blue[200]!),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(15),
+                                      borderSide:
+                                          BorderSide(color: Colors.blue[200]!),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(15),
+                                      borderSide: BorderSide(
+                                          color: Colors.blue[600]!, width: 2),
+                                    ),
+                                    contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 20, vertical: 18),
+                                    prefixIcon: Icon(
+                                      Icons.person_outline,
+                                      color: Colors.blue[600],
                                     ),
                                   ),
-                                  GestureDetector(
-                                    onTap: () {
-                                      if (_currentAuthMode != AuthMode.admin) {
-                                        _navigateToAdminLogin();
-                                      }
-                                    },
-                                    child: Container(
-                                      padding: EdgeInsets.symmetric(
-                                          horizontal: 20, vertical: 10),
-                                      decoration: BoxDecoration(
-                                        color:
-                                            _currentAuthMode == AuthMode.admin
-                                                ? Colors.blue[600]
-                                                : Colors.transparent,
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                      child: Text(
-                                        'Admin',
-                                        style: TextStyle(
-                                          color:
-                                              _currentAuthMode == AuthMode.admin
-                                                  ? Colors.white
-                                                  : Colors.blue[600],
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 14,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 20),
+                                  onChanged: (value) {
+                                    setState(() {});
+                                  },
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Please enter your email or mobile number';
+                                    }
 
-                      // Form Container
-                      Container(
-                        padding: EdgeInsets.all(25),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.blue.withOpacity(0.1),
-                              blurRadius: 20,
-                              offset: Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          children: [
-                            // Email/Mobile Field
-                            TextFormField(
-                              controller: _emailOrPhoneController,
-                              keyboardType: TextInputType.emailAddress,
-                              decoration: InputDecoration(
-                                labelText: 'Email or Mobile Number',
-                                hintText:
-                                    'Enter email or 10-digit mobile number',
-                                filled: true,
-                                fillColor: Colors.grey[50],
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(15),
-                                  borderSide:
-                                      BorderSide(color: Colors.blue[200]!),
-                                ),
-                                enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(15),
-                                  borderSide:
-                                      BorderSide(color: Colors.blue[200]!),
-                                ),
-                                focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(15),
-                                  borderSide: BorderSide(
-                                      color: Colors.blue[600]!, width: 2),
-                                ),
-                                contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 20, vertical: 18),
-                                prefixIcon: Icon(
-                                  Icons.person_outline,
-                                  color: Colors.blue[600],
-                                ),
-                              ),
-                              onChanged: (value) {
-                                setState(() {});
-                              },
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Please enter your email or mobile number';
-                                }
+                                    bool isValidEmail = _isEmail(value);
+                                    bool isValidMobile = _isMobileNumber(value);
 
-                                bool isValidEmail = _isEmail(value);
-                                bool isValidMobile = _isMobileNumber(value);
+                                    if (!isValidEmail && !isValidMobile) {
+                                      return 'Enter a valid email or 10-digit mobile number';
+                                    }
 
-                                if (!isValidEmail && !isValidMobile) {
-                                  return 'Enter a valid email or 10-digit mobile number';
-                                }
-
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 20),
-
-                            // Password Field with Visibility Toggle
-                            TextFormField(
-                              controller: _passwordController,
-                              obscureText: !_isPasswordVisible,
-                              decoration: InputDecoration(
-                                labelText: 'Password',
-                                filled: true,
-                                fillColor: Colors.grey[50],
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(15),
-                                  borderSide:
-                                      BorderSide(color: Colors.blue[200]!),
-                                ),
-                                enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(15),
-                                  borderSide:
-                                      BorderSide(color: Colors.blue[200]!),
-                                ),
-                                focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(15),
-                                  borderSide: BorderSide(
-                                      color: Colors.blue[600]!, width: 2),
-                                ),
-                                contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 20, vertical: 18),
-                                prefixIcon: Icon(
-                                  Icons.lock_outline,
-                                  color: Colors.blue[600],
-                                ),
-                                suffixIcon: IconButton(
-                                  icon: Icon(
-                                    _isPasswordVisible
-                                        ? Icons.visibility
-                                        : Icons.visibility_off,
-                                    color: Colors.blue[600],
-                                  ),
-                                  onPressed: () {
-                                    setState(() {
-                                      _isPasswordVisible = !_isPasswordVisible;
-                                    });
+                                    return null;
                                   },
                                 ),
-                              ),
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Please enter your password';
-                                }
-                                if (value.length < 6) {
-                                  return 'Password must be at least 6 characters';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 30),
+                                const SizedBox(height: 20),
 
-                            // Display Firebase Errors
-                            if (_errorMessage != null)
-                              Container(
-                                padding: EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Colors.red[50],
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(color: Colors.red[200]!),
+                                // Password Field with Visibility Toggle
+                                TextFormField(
+                                  controller: _passwordController,
+                                  obscureText: !_isPasswordVisible,
+                                  decoration: InputDecoration(
+                                    labelText: 'Password',
+                                    filled: true,
+                                    fillColor: Colors.grey[50],
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(15),
+                                      borderSide:
+                                          BorderSide(color: Colors.blue[200]!),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(15),
+                                      borderSide:
+                                          BorderSide(color: Colors.blue[200]!),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(15),
+                                      borderSide: BorderSide(
+                                          color: Colors.blue[600]!, width: 2),
+                                    ),
+                                    contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 20, vertical: 18),
+                                    prefixIcon: Icon(
+                                      Icons.lock_outline,
+                                      color: Colors.blue[600],
+                                    ),
+                                    suffixIcon: IconButton(
+                                      icon: Icon(
+                                        _isPasswordVisible
+                                            ? Icons.visibility
+                                            : Icons.visibility_off,
+                                        color: Colors.blue[600],
+                                      ),
+                                      onPressed: () {
+                                        setState(() {
+                                          _isPasswordVisible =
+                                              !_isPasswordVisible;
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Please enter your password';
+                                    }
+                                    if (value.length < 6) {
+                                      return 'Password must be at least 6 characters';
+                                    }
+                                    return null;
+                                  },
                                 ),
-                                child: Row(
+                                const SizedBox(height: 30),
+
+                                // Display Firebase Errors
+                                if (_errorMessage != null)
+                                  Container(
+                                    padding: EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: Colors.red[50],
+                                      borderRadius: BorderRadius.circular(10),
+                                      border:
+                                          Border.all(color: Colors.red[200]!),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.error_outline,
+                                            color: Colors.red[600], size: 20),
+                                        SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            _errorMessage!,
+                                            style: TextStyle(
+                                                color: Colors.red[700],
+                                                fontSize: 14),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+
+                                const SizedBox(height: 20),
+
+                                // Login Button
+                                Container(
+                                  width: double.infinity,
+                                  height: 55,
+                                  child: ElevatedButton(
+                                    onPressed: _isLoading
+                                        ? null
+                                        : (_currentAuthMode == AuthMode.employee
+                                            ? _loginUser
+                                            : _navigateToAdminLogin),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.blue[600],
+                                      foregroundColor: Colors.white,
+                                      elevation: 8,
+                                      shadowColor: Colors.blue.withOpacity(0.3),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(15),
+                                      ),
+                                    ),
+                                    child: _isLoading
+                                        ? CircularProgressIndicator(
+                                            color: Colors.white,
+                                            strokeWidth: 2,
+                                          )
+                                        : Text(
+                                            _currentAuthMode ==
+                                                    AuthMode.employee
+                                                ? 'LOGIN'
+                                                : 'ADMIN LOGIN',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold,
+                                              letterSpacing: 1,
+                                            ),
+                                          ),
+                                  ),
+                                ),
+
+                                const SizedBox(height: 25),
+
+                                // Sign Up Link
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Icon(Icons.error_outline,
-                                        color: Colors.red[600], size: 20),
-                                    SizedBox(width: 8),
-                                    Expanded(
+                                    Text(
+                                      "Don't have an Account? ",
+                                      style: TextStyle(
+                                        color: Colors.grey[600],
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    GestureDetector(
+                                      onTap: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                              builder: (context) =>
+                                                  FirstPage()),
+                                        );
+                                      },
                                       child: Text(
-                                        _errorMessage!,
+                                        'Sign Up',
                                         style: TextStyle(
-                                            color: Colors.red[700],
-                                            fontSize: 14),
+                                          color: Colors.blue[600],
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                        ),
                                       ),
                                     ),
                                   ],
                                 ),
-                              ),
 
-                            const SizedBox(height: 20),
+                                const SizedBox(height: 15),
 
-                            // Login Button
-                            Container(
-                              width: double.infinity,
-                              height: 55,
-                              child: ElevatedButton(
-                                onPressed: _isLoading
-                                    ? null
-                                    : (_currentAuthMode == AuthMode.employee
-                                        ? _loginUser
-                                        : _navigateToAdminLogin),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.blue[600],
-                                  foregroundColor: Colors.white,
-                                  elevation: 8,
-                                  shadowColor: Colors.blue.withOpacity(0.3),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(15),
-                                  ),
-                                ),
-                                child: _isLoading
-                                    ? CircularProgressIndicator(
-                                        color: Colors.white,
-                                        strokeWidth: 2,
-                                      )
-                                    : Text(
-                                        _currentAuthMode == AuthMode.employee
-                                            ? 'LOGIN'
-                                            : 'ADMIN LOGIN',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                          letterSpacing: 1,
-                                        ),
-                                      ),
-                              ),
-                            ),
-
-                            const SizedBox(height: 25),
-
-                            // Sign Up Link
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  "Don't have an Account? ",
-                                  style: TextStyle(
-                                    color: Colors.grey[600],
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                GestureDetector(
-                                  onTap: () {
+                                // Forgot Password
+                                TextButton(
+                                  onPressed: () {
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
-                                          builder: (context) => FirstPage()),
+                                          builder: (context) =>
+                                              ForgotPasswordScreen()),
                                     );
                                   },
                                   child: Text(
-                                    'Sign Up',
+                                    'Forgot Password?',
                                     style: TextStyle(
                                       color: Colors.blue[600],
-                                      fontWeight: FontWeight.bold,
+                                      fontWeight: FontWeight.w500,
                                       fontSize: 14,
                                     ),
                                   ),
                                 ),
                               ],
                             ),
+                          ),
 
-                            const SizedBox(height: 15),
-
-                            // Forgot Password
-                            TextButton(
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (context) =>
-                                          ForgotPasswordScreen()),
-                                );
-                              },
-                              child: Text(
-                                'Forgot Password?',
-                                style: TextStyle(
-                                  color: Colors.blue[600],
-                                  fontWeight: FontWeight.w500,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                          // Bottom spacing to ensure content is visible when scrolled
+                          const SizedBox(height: 30),
+                        ],
                       ),
-
-                      // Bottom spacing to ensure content is visible when scrolled
-                      const SizedBox(height: 30),
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
+
+            // Admin icon in top-right
+            Positioned(
+              top: 40.0,
+              right: 24.0,
+              child: GestureDetector(
+                onTap: () {
+                  _navigateToAdminLogin();
+                },
+                child: Container(
+                  padding: EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black12,
+                        blurRadius: 3,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    Icons.admin_panel_settings,
+                    color: Colors.blue[600],
+                    size: 26,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
